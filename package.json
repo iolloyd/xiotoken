@@ -1,0 +1,20 @@
+{
+  "name": "xiotoken",
+  "version": "1.0.0",
+  "description": "XIO Token Implementation",
+  "main": "index.js",
+  "scripts": {
+    "test": "hardhat test",
+    "compile": "hardhat compile",
+    "deploy:base": "hardhat run scripts/deploy.js --network base",
+    "deploy:hyperliquid": "hardhat run scripts/deploy.js --network hyperliquid"
+  },
+  "dependencies": {
+    "@openzeppelin/contracts": "^4.9.0",
+    "dotenv": "^16.0.3"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^2.0.0",
+    "hardhat": "^2.14.0"
+  }
+}

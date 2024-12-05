@@ -1,0 +1,39 @@
+# Dependency directories
+node_modules/
+
+# Environment files
+.env
+.env.local
+.env.*
+
+# Hardhat files
+cache/
+artifacts/
+typechain/
+typechain-types/
+
+# Coverage directory
+coverage/
+coverage.json
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Debug logs
+*.log
+
+# Production build files
+dist/
+build/
+
+# Mac OS files
+.DS_Store
+
+# Test files
+coverage.json
+.coverage_artifacts/
+.coverage_cache/
+.coverage_contracts/
