@@ -1,1 +1,1 @@
-// Content of XGENKYC.sol
+[Previous XGENKYC.sol content]

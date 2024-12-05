@@ -1,1 +1,1 @@
-[Content of SECURITY.md]
+[Previous SECURITY.md content]

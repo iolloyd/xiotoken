@@ -1,1 +1,1 @@
-// Content of XGENSale.sol
+[Previous XGENSale.sol content]

@@ -1,1 +1,1 @@
-// Content of XGENMonitor.sol
+[Previous XGENMonitor.sol content]

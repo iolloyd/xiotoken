@@ -1,1 +1,1 @@
-[Content of ARCHITECTURE.md]
+[Previous ARCHITECTURE.md content]
