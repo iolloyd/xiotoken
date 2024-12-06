@@ -1,240 +1,175 @@
 # XIO Token Implementation
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+This repository contains the smart contracts and deployment scripts for the XIO token ecosystem, including the XGEN placeholder token, XIO token, and token swap mechanism.
 
 ## Overview
 
-The XIO Token Implementation is a comprehensive dual-network token system featuring:
-- A placeholder token ($XGEN) on Base network for the initial sale
-- The final token ($XIO) on Hyperliquid L1
-- A secure token swap mechanism
-- Advanced governance and treasury management capabilities
+The system consists of three main components:
 
-## Table of Contents
-
-- [Features](#features)
-- [Architecture](#architecture)
-- [Prerequisites](#prerequisites)
-- [Quick Start](#quick-start)
-- [Development](#development)
-- [Testing](#testing)
-- [Deployment](#deployment)
-- [Security](#security)
-- [Documentation](#documentation)
-- [Contributing](#contributing)
-- [License](#license)
-
-## Features
-
-### Token Implementation
-- ERC-20 compliant smart contracts
-- Role-based access control
-- Pausable functionality
-- Burnable tokens
-- Emergency controls
-
-### Token Sale (Fjord Foundry)
-- Customizable sale parameters
-- Whitelisting capabilities
-- Investment limits
-- Vesting schedule support
-- Technical documentation for investors
-
-### Token Swap
-- 1:1 swap ratio ($XGEN to $XIO)
-- Time-locked activation
-- Emergency pause functionality
-- Administrative controls
-- Secure withdrawal mechanisms
-
-### Governance & Management
-- Snapshot.org integration
-- Multi-signature wallet implementation
-- DAO management tools (Mangna)
-- Treasury controls
-- Proposal management system
-
-## Architecture
-
-The project consists of three main smart contracts:
-
-1. **XGEN Token** (Base Network)
-   - Placeholder token for initial sale
-   - Full ERC-20 functionality
-   - Administrative controls
-
-2. **XIO Token** (Hyperliquid L1)
-   - Final token implementation
-   - Enhanced L1 capabilities
-   - Governance integration
-
-3. **Token Swap**
-   - Secure exchange mechanism
-   - Rate control
-   - Administrative features
-
-Detailed architecture documentation is available in [ARCHITECTURE.md](docs/ARCHITECTURE.md).
+1. **XGEN Token**: Initial placeholder token on Base network
+2. **XIO Token**: Final token deployed on Hyperliquid L1
+3. **TokenSwap**: Contract managing the 1:1 swap from XGEN to XIO
 
 ## Prerequisites
 
-- Node.js >= 16.0.0
-- npm >= 8.0.0
-- Git
-- Access to Base and Hyperliquid networks
-- Private key with sufficient funds for deployment
+- Node.js v16+
+- npm v8+
+- Hardhat
+- Access to Base network (RPC URL)
+- Access to Hyperliquid L1 (RPC URL)
+- Private key with sufficient ETH for deployment
 
-## Quick Start
+## Installation
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/xiotoken.git
+git clone https://github.com/your-org/xiotoken.git
 cd xiotoken
 ```
 
 2. Install dependencies:
 ```bash
-make install
+npm install
 ```
 
-3. Configure environment:
-```bash
-make setup
-```
-
-4. Build and test:
-```bash
-make compile
-make test
-```
-
-## Development
-
-### Environment Setup
-
-Create a `.env` file based on `.env.example`:
+3. Copy and configure environment variables:
 ```bash
 cp .env.example .env
 ```
 
-Required environment variables:
-- `PRIVATE_KEY`: Your deployment wallet private key
-- `BASE_RPC_URL`: Base network RPC URL
-- `HYPERLIQUID_RPC_URL`: Hyperliquid network RPC URL
-- `ETHERSCAN_API_KEY`: For contract verification
+Edit `.env` with your specific configuration:
+```env
+# Network Configuration
+BASE_RPC_URL=your_base_rpc_url
+BASESCAN_API_KEY=your_basescan_api_key
 
-### Build
+# Deployment Account
+PRIVATE_KEY=your_private_key
+DEPLOYER_ADDRESS=your_deployer_address
 
-```bash
-make compile
-```
+# Contract Configuration
+TOTAL_SUPPLY=100000000
+SEED_ROUND_ALLOCATION=10000000
+TOKEN_PRICE=100000000
+MIN_INVESTMENT=1000
+MAX_INVESTMENT=50000
 
-### Code Style
+# Security Configuration
+MULTISIG_ADDRESS=your_multisig_address
+ADMIN_ADDRESSES=address1,address2,address3
+PAUSER_ADDRESSES=address1,address2
+MINTER_ADDRESSES=address1,address2
 
-Format code:
-```bash
-make format
-```
+# Sale Configuration
+SALE_START_TIME=unix_timestamp
+SALE_DURATION=129600
+INITIAL_UNLOCK_PERCENT=10
+CLIFF_PERIOD=15552000
+VESTING_DURATION=46656000
 
-Lint code:
-```bash
-make lint
+# Rate Limiting
+RATE_LIMIT_AMOUNT=100000
+RATE_LIMIT_PERIOD=3600
 ```
 
 ## Testing
 
 Run the test suite:
 ```bash
-make test
+npm test
 ```
 
-Generate coverage report:
+For coverage report:
 ```bash
-make coverage
+npm run coverage
 ```
 
 ## Deployment
 
-### Base Network (XGEN)
+### 1. Deploy XGEN Token (Base Network)
 ```bash
-make deploy-base
+npm run deploy:xgen:base
 ```
 
-### Hyperliquid L1 (XIO)
+### 2. Run Token Sale
+Configure sale parameters in Fjord Foundry and start the sale.
+
+### 3. Deploy Token Swap
 ```bash
-make deploy-hyperliquid
+npm run deploy:swap:base
 ```
 
-### Token Swap Contract
+### 4. Deploy XIO Token (Hyperliquid L1)
 ```bash
-make deploy-swap
+npm run deploy:xio:hyperliquid
 ```
 
-### Verify All Contracts
-```bash
-make verify-all
-```
+## Contract Verification
 
-Detailed deployment instructions are available in [DEPLOYMENT.md](docs/DEPLOYMENT.md).
+Verify contracts on respective block explorers:
+```bash
+# Verify on Base
+npm run verify:base CONTRACT_ADDRESS CONSTRUCTOR_ARGS
+
+# Verify on Hyperliquid
+npm run verify:hyperliquid CONTRACT_ADDRESS CONSTRUCTOR_ARGS
+```
 
 ## Security
 
-### Smart Contract Security
+The contracts implement several security features:
 
-- Role-based access control
-- Emergency pause functionality
-- Rate limiting mechanisms
-- Reentrancy protection
-- Multi-signature requirements
-- Time-locked operations
+1. **Role-Based Access Control**
+   - Admin roles
+   - Pauser roles
+   - Minter roles
+   - Operator roles
+   - Governance roles
 
-### Audit Status
+2. **Rate Limiting**
+   - Configurable transfer limits
+   - Time-based restrictions
+   - Exemption list for trusted addresses
 
-[Add audit information when available]
+3. **Emergency Controls**
+   - Pause functionality
+   - Emergency recovery system
+   - Time-locked emergency actions
 
-### Bug Bounty
-
-[Add bug bounty information when available]
+4. **Burn Mechanism**
+   - Quarterly burn schedule
+   - Maximum burn cap
+   - Profit-based burn calculation
 
 ## Documentation
 
-- [Architecture Overview](docs/ARCHITECTURE.md)
-- [Deployment Guide](docs/DEPLOYMENT.md)
-- [API Reference](docs/API.md)
-- [Security Model](docs/SECURITY.md)
+Additional documentation:
+- [Implementation Plan](./docs/XIO%20Token%20Implementation%20Plan.md)
+- [Security Documentation](./docs/XIO%20Token%20Security%20Documentation.md)
+- [Technical Documentation](./docs/XIO%20Token%20Implementation%20Documentation.md)
+
+## Scripts
+
+Available npm scripts:
+```bash
+npm run compile      # Compile contracts
+npm run test        # Run tests
+npm run coverage    # Generate coverage report
+npm run deploy:base # Deploy to Base network
+npm run verify      # Verify contracts
+npm run clean       # Clean build files
+```
 
 ## Contributing
-
-We welcome contributions to the XIO Token Implementation! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
-
-### Development Process
 
 1. Fork the repository
 2. Create your feature branch
 3. Commit your changes
 4. Push to the branch
-5. Create a Pull Request
+5. Create a pull request
 
-### Code Style
-
-- Solidity: Follow [Solidity Style Guide](https://docs.soliditylang.org/en/v0.8.19/style-guide.html)
-- JavaScript: ESLint configuration provided
-- Commit messages: Follow [Conventional Commits](https://www.conventionalcommits.org/)
+Please read [CONTRIBUTING.md](CONTRIBUTING.md) for details on the development process.
 
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## Support
-
-- Discord: [Join our community](#)
-- Twitter: [@XIOProtocol](#)
-- Documentation: [docs.xioprotocol.io](#)
-- Email: support@xioprotocol.io
-
-## Acknowledgments
-
-- OpenZeppelin for secure contract implementations
-- Hardhat development environment
-- Base and Hyperliquid networks
-- Fjord Foundry team
-- All our contributors and community members
