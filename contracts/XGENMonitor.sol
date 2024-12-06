@@ -2,9 +2,9 @@
 pragma solidity ^0.8.19;
 
 import "@openzeppelin/contracts/access/AccessControl.sol";
-import "./XGEN.sol";
-import "./XGENSale.sol";
-import "./XGENVesting.sol";
+import "./interfaces/IXGENToken.sol";
+import "./interfaces/IXGENSale.sol";
+import "./interfaces/IXGENVesting.sol";
 
 /**
  * @title XGENMonitor
@@ -13,9 +13,9 @@ import "./XGENVesting.sol";
 contract XGENMonitor is AccessControl {
     bytes32 public constant MONITOR_ROLE = keccak256("MONITOR_ROLE");
     
-    XGEN public immutable xgenToken;
-    XGENSale public immutable saleContract;
-    XGENVesting public immutable vestingContract;
+    IXGENToken public immutable xgenToken;
+    IXGENSale public immutable saleContract;
+    IXGENVesting public immutable vestingContract;
     
     struct SaleMetrics {
         uint256 totalParticipants;
@@ -62,9 +62,13 @@ contract XGENMonitor is AccessControl {
         address sale,
         address vesting
     ) {
-        xgenToken = XGEN(token);
-        saleContract = XGENSale(sale);
-        vestingContract = XGENVesting(vesting);
+        require(token != address(0), "XGENMonitor: zero token address");
+        require(sale != address(0), "XGENMonitor: zero sale address");
+        require(vesting != address(0), "XGENMonitor: zero vesting address");
+
+        xgenToken = IXGENToken(token);
+        saleContract = IXGENSale(sale);
+        vestingContract = IXGENVesting(vesting);
         
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
         _grantRole(MONITOR_ROLE, msg.sender);
@@ -110,12 +114,12 @@ contract XGENMonitor is AccessControl {
         returns (SaleMetrics memory)
     {
         return SaleMetrics({
-            totalParticipants: saleContract.totalSold() > 0 ? _countParticipants() : 0,
+            totalParticipants: saleContract.totalParticipants(),
             totalRaised: address(saleContract).balance,
             tokensSold: saleContract.totalSold(),
             averagePurchase: _calculateAveragePurchase(),
-            largestPurchase: _findLargestPurchase(),
-            smallestPurchase: _findSmallestPurchase()
+            largestPurchase: saleContract.largestPurchase(),
+            smallestPurchase: saleContract.smallestPurchase()
         });
     }
     
@@ -128,9 +132,9 @@ contract XGENMonitor is AccessControl {
         returns (VestingMetrics memory)
     {
         return VestingMetrics({
-            totalBeneficiaries: _countBeneficiaries(),
-            totalVested: _calculateTotalVested(),
-            totalClaimed: _calculateTotalClaimed(),
+            totalBeneficiaries: vestingContract.totalBeneficiaries(),
+            totalVested: vestingContract.totalVested(),
+            totalClaimed: vestingContract.totalClaimed(),
             remainingToVest: _calculateRemainingToVest()
         });
     }
@@ -151,47 +155,21 @@ contract XGENMonitor is AccessControl {
         });
     }
     
-    // Internal helper functions
-    function _countParticipants() internal view returns (uint256) {
-        uint256 count = 0;
-        uint256 balance = xgenToken.balanceOf(address(vestingContract));
-        require(balance > 0, "XGENMonitor: No participants yet");
-        return count;
-    }
-    
+    // Internal helper functions    
     function _calculateAveragePurchase() internal view returns (uint256) {
-        uint256 totalParticipants = _countParticipants();
+        uint256 totalParticipants = saleContract.totalParticipants();
         if (totalParticipants == 0) return 0;
         return saleContract.totalSold() / totalParticipants;
     }
     
-    function _findLargestPurchase() internal view returns (uint256) {
-        return 0; // Implement tracking logic
-    }
-    
-    function _findSmallestPurchase() internal view returns (uint256) {
-        return 0; // Implement tracking logic
-    }
-    
-    function _countBeneficiaries() internal view returns (uint256) {
-        return 0; // Implement counting logic
-    }
-    
-    function _calculateTotalVested() internal view returns (uint256) {
-        return 0; // Implement vesting calculation
-    }
-    
-    function _calculateTotalClaimed() internal view returns (uint256) {
-        return 0; // Implement claimed calculation
-    }
-    
     function _calculateRemainingToVest() internal view returns (uint256) {
-        return 0; // Implement remaining calculation
+        return vestingContract.totalVested() - vestingContract.totalClaimed();
     }
     
     function _calculateCirculatingSupply() internal view returns (uint256) {
         uint256 totalSupply = xgenToken.totalSupply();
         uint256 vestingBalance = xgenToken.balanceOf(address(vestingContract));
-        return totalSupply - vestingBalance;
+        uint256 saleBalance = xgenToken.balanceOf(address(saleContract));
+        return totalSupply - vestingBalance - saleBalance;
     }
 }

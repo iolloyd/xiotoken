@@ -51,6 +51,8 @@ contract XGEN is ERC20, ERC20Burnable, Pausable, AccessControl, ERC20Permit, Ree
     
     /**
      * @dev Contract constructor
+     * @param name Token name
+     * @param symbol Token symbol
      * @param _totalSupply Total token supply cap
      * @param _seedAllocation Allocation for seed round
      * @param _tokenPrice Initial token price
@@ -58,14 +60,16 @@ contract XGEN is ERC20, ERC20Burnable, Pausable, AccessControl, ERC20Permit, Ree
      * @param _rateLimitPeriod Initial rate limit period
      */
     constructor(
+        string memory name,
+        string memory symbol,
         uint256 _totalSupply,
         uint256 _seedAllocation,
         uint256 _tokenPrice,
         uint256 _rateLimitAmount,
         uint256 _rateLimitPeriod
     ) 
-        ERC20("XGEN Token", "XGEN")
-        ERC20Permit("XGEN Token") 
+        ERC20(name, symbol)
+        ERC20Permit(name) 
     {
         require(_totalSupply > 0, "XGEN: Total supply must be positive");
         require(_seedAllocation <= _totalSupply, "XGEN: Seed allocation exceeds total supply");
@@ -83,6 +87,9 @@ contract XGEN is ERC20, ERC20Burnable, Pausable, AccessControl, ERC20Permit, Ree
         _grantRole(PAUSER_ROLE, msg.sender);
         _grantRole(MINTER_ROLE, msg.sender);
         _grantRole(CONFIGURATOR_ROLE, msg.sender);
+        
+        // Mint initial supply to deployer
+        _mint(msg.sender, _totalSupply);
     }
     
     /**

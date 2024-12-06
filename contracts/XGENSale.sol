@@ -4,18 +4,19 @@ pragma solidity ^0.8.19;
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/access/AccessControl.sol";
 import "@openzeppelin/contracts/security/Pausable.sol";
-import "./XGEN.sol";
-import "./XGENVesting.sol";
+import "./interfaces/IXGENToken.sol";
+import "./interfaces/IXGENSale.sol";
+import "./interfaces/IXGENVesting.sol";
 
 /**
  * @title XGENSale
  * @notice Manages the XGEN token sale through Fjord Foundry integration
  */
-contract XGENSale is ReentrancyGuard, AccessControl, Pausable {
+contract XGENSale is IXGENSale, ReentrancyGuard, AccessControl, Pausable {
     bytes32 public constant OPERATOR_ROLE = keccak256("OPERATOR_ROLE");
     
-    XGEN public immutable xgenToken;
-    XGENVesting public immutable vestingContract;
+    IXGENToken public immutable xgenToken;
+    IXGENVesting public immutable vestingContract;
     
     uint256 public constant PRICE = 100_000_000;         // $0.10 in wei
     uint256 public constant MIN_PURCHASE = 1_000 * 1e18; // $1,000
@@ -24,28 +25,39 @@ contract XGENSale is ReentrancyGuard, AccessControl, Pausable {
     
     uint256 public startTime;
     uint256 public endTime;
-    uint256 public totalSold;
+    uint256 public override totalSold;
+    uint256 public override largestPurchase;
+    uint256 public override smallestPurchase;
+    uint256 public override totalParticipants;
+    uint256 public override tokenPrice;
     
     mapping(address => bool) public kycApproved;
     mapping(address => uint256) public purchases;
+    mapping(address => bool) public hasParticipated;
     
     event TokensPurchased(address indexed buyer, uint256 amount, uint256 cost);
     event KYCStatusUpdated(address indexed account, bool status);
     event SaleTimingUpdated(uint256 newStart, uint256 newEnd);
+    event SaleEnded(uint256 timestamp, uint256 totalSold);
     
     constructor(
         address token,
         address vesting,
         uint256 _startTime,
-        uint256 _endTime
+        uint256 _endTime,
+        uint256 _tokenPrice
     ) {
+        require(token != address(0), "XGENSale: zero token address");
+        require(vesting != address(0), "XGENSale: zero vesting address");
         require(_startTime > block.timestamp, "XGENSale: invalid start");
         require(_endTime > _startTime, "XGENSale: invalid end");
+        require(_tokenPrice > 0, "XGENSale: invalid price");
         
-        xgenToken = XGEN(token);
-        vestingContract = XGENVesting(vesting);
+        xgenToken = IXGENToken(token);
+        vestingContract = IXGENVesting(vesting);
         startTime = _startTime;
         endTime = _endTime;
+        tokenPrice = _tokenPrice;
         
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
         _grantRole(OPERATOR_ROLE, msg.sender);
@@ -58,6 +70,7 @@ contract XGENSale is ReentrancyGuard, AccessControl, Pausable {
         external
         onlyRole(OPERATOR_ROLE)
     {
+        require(account != address(0), "XGENSale: zero address");
         kycApproved[account] = status;
         emit KYCStatusUpdated(account, status);
     }
@@ -71,6 +84,7 @@ contract XGENSale is ReentrancyGuard, AccessControl, Pausable {
     {
         require(accounts.length == statuses.length, "XGENSale: length mismatch");
         for (uint256 i = 0; i < accounts.length; i++) {
+            require(accounts[i] != address(0), "XGENSale: zero address");
             kycApproved[accounts[i]] = statuses[i];
             emit KYCStatusUpdated(accounts[i], statuses[i]);
         }
@@ -106,16 +120,38 @@ contract XGENSale is ReentrancyGuard, AccessControl, Pausable {
         require(msg.value >= MIN_PURCHASE, "XGENSale: below minimum");
         require(msg.value <= MAX_PURCHASE, "XGENSale: above maximum");
         
-        uint256 tokenAmount = (msg.value * 1e18) / PRICE;
+        uint256 tokenAmount = (msg.value * 1e18) / tokenPrice;
         require(totalSold + tokenAmount <= TOTAL_TOKENS, "XGENSale: exceeds allocation");
         
+        // Update metrics
         totalSold += tokenAmount;
         purchases[msg.sender] += tokenAmount;
+        
+        if (!hasParticipated[msg.sender]) {
+            hasParticipated[msg.sender] = true;
+            totalParticipants++;
+        }
+        
+        if (tokenAmount > largestPurchase) {
+            largestPurchase = tokenAmount;
+        }
+        if (smallestPurchase == 0 || tokenAmount < smallestPurchase) {
+            smallestPurchase = tokenAmount;
+        }
         
         // Set up vesting for the purchaser
         vestingContract.addBeneficiary(msg.sender, tokenAmount);
         
         emit TokensPurchased(msg.sender, tokenAmount, msg.value);
+    }
+    
+    /**
+     * @dev Ends the sale early if needed
+     */
+    function endSale() external override onlyRole(OPERATOR_ROLE) {
+        require(block.timestamp >= startTime, "XGENSale: not started");
+        endTime = block.timestamp;
+        emit SaleEnded(block.timestamp, totalSold);
     }
     
     /**

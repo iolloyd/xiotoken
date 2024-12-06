@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
-import "@openzeppelin/contracts/finance/VestingWallet.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/access/AccessControl.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "./XGEN.sol";
@@ -9,34 +9,29 @@ import "./XGEN.sol";
 /**
  * @title XGENVesting
  * @notice Manages token vesting for XGEN token seed round participants
- * @dev Extends OpenZeppelin's VestingWallet with custom functionality for XGEN
  */
-contract XGENVesting is VestingWallet, AccessControl, ReentrancyGuard {
+contract XGENVesting is AccessControl, ReentrancyGuard {
     bytes32 public constant MANAGER_ROLE = keccak256("MANAGER_ROLE");
     XGEN public immutable xgenToken;
     
-    uint256 public constant INITIAL_UNLOCK_PERCENT = 10;
-    uint256 public constant VESTING_DURATION = 540 days; // 18 months
-    uint256 public constant CLIFF_DURATION = 180 days;   // 6 months
+    uint64 public constant INITIAL_UNLOCK_PERCENT = 10;
+    uint64 public constant VESTING_DURATION = 540 days; // 18 months
+    uint64 public constant CLIFF_DURATION = 180 days;   // 6 months
+    
+    uint64 public immutable startTimestamp;
     
     mapping(address => uint256) public beneficiaryAllocations;
     mapping(address => uint256) public initialUnlockClaimed;
+    mapping(address => uint256) public totalClaimed;
     
     event BeneficiaryAdded(address indexed beneficiary, uint256 allocation);
     event InitialUnlockClaimed(address indexed beneficiary, uint256 amount);
+    event TokensClaimed(address indexed beneficiary, uint256 amount);
     
-    constructor(
-        address token,
-        uint64 startTimestamp
-    ) 
-        VestingWallet(
-            address(this),
-            startTimestamp,
-            CLIFF_DURATION
-        ) 
-    {
+    constructor(address token) {
         require(token != address(0), "XGENVesting: zero address");
         xgenToken = XGEN(token);
+        startTimestamp = uint64(block.timestamp);
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
         _grantRole(MANAGER_ROLE, msg.sender);
     }
@@ -66,12 +61,13 @@ contract XGENVesting is VestingWallet, AccessControl, ReentrancyGuard {
         external
         nonReentrant
     {
-        require(block.timestamp >= start(), "XGENVesting: not started");
+        require(block.timestamp >= startTimestamp, "XGENVesting: not started");
         require(beneficiaryAllocations[msg.sender] > 0, "XGENVesting: no allocation");
         require(initialUnlockClaimed[msg.sender] == 0, "XGENVesting: already claimed");
         
         uint256 unlockAmount = (beneficiaryAllocations[msg.sender] * INITIAL_UNLOCK_PERCENT) / 100;
         initialUnlockClaimed[msg.sender] = unlockAmount;
+        totalClaimed[msg.sender] += unlockAmount;
         
         require(xgenToken.transfer(msg.sender, unlockAmount), "XGENVesting: transfer failed");
         emit InitialUnlockClaimed(msg.sender, unlockAmount);
@@ -91,10 +87,10 @@ contract XGENVesting is VestingWallet, AccessControl, ReentrancyGuard {
         uint256 totalAllocation = beneficiaryAllocations[beneficiary];
         uint256 vestingAllocation = (totalAllocation * (100 - INITIAL_UNLOCK_PERCENT)) / 100;
         
-        if (block.timestamp < start() + CLIFF_DURATION) return 0;
-        if (block.timestamp >= start() + VESTING_DURATION) return vestingAllocation;
+        if (block.timestamp < startTimestamp + CLIFF_DURATION) return 0;
+        if (block.timestamp >= startTimestamp + VESTING_DURATION) return vestingAllocation;
         
-        return (vestingAllocation * (block.timestamp - start() - CLIFF_DURATION)) / 
+        return (vestingAllocation * (block.timestamp - startTimestamp - CLIFF_DURATION)) / 
                (VESTING_DURATION - CLIFF_DURATION);
     }
     
@@ -108,7 +104,12 @@ contract XGENVesting is VestingWallet, AccessControl, ReentrancyGuard {
         uint256 vested = vestedAmount(msg.sender);
         require(vested > 0, "XGENVesting: nothing to claim");
         
-        require(xgenToken.transfer(msg.sender, vested), "XGENVesting: transfer failed");
+        uint256 claimable = vested - totalClaimed[msg.sender] + initialUnlockClaimed[msg.sender];
+        require(claimable > 0, "XGENVesting: no tokens to claim");
+        
+        totalClaimed[msg.sender] += claimable;
+        require(xgenToken.transfer(msg.sender, claimable), "XGENVesting: transfer failed");
+        emit TokensClaimed(msg.sender, claimable);
     }
     
     /**
