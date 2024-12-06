@@ -4,17 +4,48 @@
   "description": "XIO Token Implementation",
   "main": "index.js",
   "scripts": {
-    "test": "hardhat test",
     "compile": "hardhat compile",
-    "deploy:base": "hardhat run scripts/deploy.js --network base",
-    "deploy:hyperliquid": "hardhat run scripts/deploy.js --network hyperliquid"
+    "test": "hardhat test",
+    "coverage": "hardhat coverage",
+    "deploy:base": "hardhat run scripts/deploy_all.js --network base",
+    "deploy:baseGoerli": "hardhat run scripts/deploy_all.js --network baseGoerli",
+    "verify": "hardhat verify",
+    "clean": "hardhat clean",
+    "lint": "solhint 'contracts/**/*.sol'",
+    "lint:fix": "solhint 'contracts/**/*.sol' --fix",
+    "format": "prettier --write 'contracts/**/*.sol' 'test/**/*.js' 'scripts/**/*.js'",
+    "docgen": "hardhat docgen",
+    "security": "slither . && mythril analyze ./contracts/*.sol",
+    "monitor": "node scripts/monitor.js",
+    "verify:deployment": "node scripts/verify_deployment.js",
+    "prepare": "husky install"
   },
   "dependencies": {
     "@openzeppelin/contracts": "^4.9.0",
     "dotenv": "^16.0.3"
   },
   "devDependencies": {
-    "@nomicfoundation/hardhat-toolbox": "^2.0.0",
-    "hardhat": "^2.14.0"
+    "@nomicfoundation/hardhat-toolbox": "^2.0.2",
+    "@nomiclabs/hardhat-ethers": "^2.2.3",
+    "@nomiclabs/hardhat-etherscan": "^3.1.7",
+    "@openzeppelin/test-helpers": "^0.5.16",
+    "chai": "^4.3.7",
+    "eslint": "^8.40.0",
+    "ethers": "^5.7.2",
+    "hardhat": "^2.14.0",
+    "hardhat-deploy": "^0.11.30",
+    "hardhat-docgen": "^1.3.0",
+    "hardhat-gas-reporter": "^1.0.9",
+    "husky": "^8.0.3",
+    "prettier": "^2.8.8",
+    "prettier-plugin-solidity": "^1.1.3",
+    "solhint": "^3.4.1",
+    "solhint-plugin-prettier": "^0.0.5",
+    "solidity-coverage": "^0.8.2"
+  },
+  "husky": {
+    "hooks": {
+      "pre-commit": "npm run lint && npm run format"
+    }
   }
 }
