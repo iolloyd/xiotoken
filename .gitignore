@@ -1,39 +1,20 @@
-# Dependency directories
-node_modules/
-
-# Environment files
+node_modules
 .env
-.env.local
-.env.*
+coverage
+coverage.json
+typechain
+typechain-types
 
 # Hardhat files
-cache/
-artifacts/
-typechain/
-typechain-types/
-
-# Coverage directory
-coverage/
-coverage.json
+cache
+artifacts
 
 # IDE files
-.idea/
-.vscode/
-*.swp
-*.swo
+.idea
+.vscode
 
-# Debug logs
-*.log
+# Local deployment data
+deployment.local.json
 
-# Production build files
-dist/
-build/
-
-# Mac OS files
-.DS_Store
-
-# Test files
-coverage.json
-.coverage_artifacts/
-.coverage_cache/
-.coverage_contracts/
+# Snapshot configuration
+snapshot-space-config.json

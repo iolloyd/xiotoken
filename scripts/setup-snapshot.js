@@ -1,15 +1,18 @@
 const { ethers } = require("hardhat");
+const axios = require("axios");
 
 // Snapshot space setup configurations
 const SPACE_CONFIG = {
     name: "XIO DAO",
     symbol: "XIO",
-    domain: "snapshot.xio.network",
+    domain: "snapshot.xio.network", // Update with actual domain
     about: "XIO DAO Governance",
-    website: "https://xio.network",
-    terms: "https://docs.xio.network/terms",
+    avatar: "", // Add IPFS hash for avatar
+    website: "https://xio.network", // Update with actual website
+    terms: "https://docs.xio.network/terms", // Update with actual terms
     github: "https://github.com/xio-protocol",
-    network: "1",
+    twitter: "@xioprotocol",
+    network: "1", // Ethereum mainnet
     strategies: [
         {
             name: "erc20-balance-of",
@@ -21,12 +24,12 @@ const SPACE_CONFIG = {
     ],
     voting: {
         delay: 0,
-        period: 259200,
+        period: 259200, // 3 days
         type: "single-choice",
-        quorum: 100000
+        quorum: 100000 // 100k XIO tokens
     },
     proposals: {
-        threshold: 10000,
+        threshold: 10000, // 10k XIO tokens
         validate: true,
         minScore: 0
     }
@@ -53,14 +56,15 @@ async function main() {
     const spaceConfig = {
         ...SPACE_CONFIG,
         filters: {
-            minScore: 100,
+            minScore: 100, // Minimum score to create proposal
             onlyMembers: false
         },
         members: [
-            governanceAddress
+            governanceAddress // Governance contract as admin
         ],
         admins: [
-            governanceAddress
+            governanceAddress // Governance contract as admin
+
         ],
         validation: {
             name: "basic",
@@ -81,6 +85,12 @@ async function main() {
     console.log("1. Create space on snapshot.org with saved configuration");
     console.log("2. Update space settings with governance contract");
     console.log("3. Test proposal creation and voting");
+    console.log("");
+    console.log("Important URLs:");
+    console.log("- Snapshot UI: https://snapshot.org/#/xio.eth");
+    console.log("- Governance Contract:", governanceAddress);
+    console.log("- XIO Token Contract:", tokenAddress);
+
 }
 
 main()

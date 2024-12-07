@@ -50,6 +50,12 @@ contract XIOTokenManager is AccessControl, ReentrancyGuard, Pausable {
         uint256 oldLimit,
         uint256 newLimit
     );
+    event EmergencyAction(
+        bytes32 indexed actionId,
+        string action,
+        string reason
+    );
+
     
     /**
      * @dev Constructor
@@ -85,6 +91,18 @@ contract XIOTokenManager is AccessControl, ReentrancyGuard, Pausable {
         require(amount > 0, "Invalid amount");
         require(amount <= operatorLimits[msg.sender], "Exceeds limit");
         
+        // Reset daily operations if 24h passed
+        if (block.timestamp >= lastOperationTimestamp[msg.sender] + 1 days) {
+            dailyOperations[msg.sender] = 0;
+            lastOperationTimestamp[msg.sender] = block.timestamp;
+        }
+        
+        require(
+            dailyOperations[msg.sender] + amount <= operatorLimits[msg.sender],
+            "Daily limit exceeded"
+        );
+        
+
         bytes32 requestId = keccak256(
             abi.encodePacked(
                 recipient,
@@ -104,6 +122,8 @@ contract XIOTokenManager is AccessControl, ReentrancyGuard, Pausable {
             purpose: purpose
         });
         
+        dailyOperations[msg.sender] += amount;
+
         emit TransferRequested(requestId, recipient, amount, executionTime);
         
         return requestId;
@@ -126,6 +146,11 @@ contract XIOTokenManager is AccessControl, ReentrancyGuard, Pausable {
             block.timestamp >= request.executionTime,
             "Too early"
         );
+        require(
+            xioToken.balanceOf(address(this)) >= request.amount,
+            "Insufficient balance"
+        );
+
         
         request.executed = true;
         
@@ -152,5 +177,79 @@ contract XIOTokenManager is AccessControl, ReentrancyGuard, Pausable {
         operatorLimits[operator] = newLimit;
         
         emit OperatorLimitUpdated(operator, oldLimit, newLimit);
+    }
+    
+    /**
+     * @dev Emergency token recovery
+     * @param token Token to recover
+     * @param amount Amount to recover
+     * @param reason Recovery reason
+     */
+    function emergencyRecover(
+        address token,
+        uint256 amount,
+        string memory reason
+    )
+        external
+        onlyRole(DEFAULT_ADMIN_ROLE)
+    {
+        require(token != address(0), "Invalid token");
+        require(amount > 0, "Invalid amount");
+        
+        IERC20 tokenContract = IERC20(token);
+        require(
+            tokenContract.transfer(msg.sender, amount),
+            "Recovery failed"
+        );
+        
+        bytes32 actionId = keccak256(
+            abi.encodePacked(
+                "RECOVERY",
+                token,
+                amount,
+                block.timestamp
+            )
+        );
+        
+        emit EmergencyAction(actionId, "TOKEN_RECOVERY", reason);
+    }
+    
+    /**
+     * @dev Pauses contract operations
+     */
+    function pause() external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _pause();
+    }
+    
+    /**
+     * @dev Unpauses contract operations
+     */
+    function unpause() external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _unpause();
+    }
+    
+    /**
+     * @dev View function to get transfer request details
+     * @param requestId Request ID to query
+     */
+    function getTransferRequest(bytes32 requestId)
+        external
+        view
+        returns (
+            address recipient,
+            uint256 amount,
+            uint256 executionTime,
+            bool executed,
+            string memory purpose
+        )
+    {
+        TransferRequest storage request = pendingTransfers[requestId];
+        return (
+            request.recipient,
+            request.amount,
+            request.executionTime,
+            request.executed,
+            request.purpose
+        );
     }
 }
