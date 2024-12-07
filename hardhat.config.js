@@ -1,16 +1,9 @@
 require("@nomicfoundation/hardhat-toolbox");
 require("@nomiclabs/hardhat-ethers");
 require("@nomiclabs/hardhat-etherscan");
-require("hardhat-deploy");
-require("hardhat-gas-reporter");
-require("hardhat-docgen");
-require("solidity-coverage");
-require('dotenv').config();
+require("dotenv").config();
 
-const PRIVATE_KEY = process.env.PRIVATE_KEY || "0000000000000000000000000000000000000000000000000000000000000000";
-const BASE_RPC_URL = process.env.BASE_RPC_URL || "https://mainnet.base.org";
-const BASESCAN_API_KEY = process.env.BASESCAN_API_KEY || "";
-
+/** @type import('hardhat/config').HardhatUserConfig */
 module.exports = {
   solidity: {
     version: "0.8.19",
@@ -18,45 +11,35 @@ module.exports = {
       optimizer: {
         enabled: true,
         runs: 200
-      },
-      metadata: {
-        bytecodeHash: "none"
       }
     }
   },
   networks: {
     hardhat: {
-      chainId: 31337,
-      gas: "auto",
-      accounts: {
-        mnemonic: "test test test test test test test test test test test junk"
-      }
+      chainId: 1337
     },
-    base: {
-      url: BASE_RPC_URL,
-      accounts: [PRIVATE_KEY],
+    base_mainnet: {
+      url: process.env.BASE_MAINNET_RPC_URL || "https://mainnet.base.org",
+      accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
       chainId: 8453,
-      verify: {
-        etherscan: {
-          apiKey: BASESCAN_API_KEY
-        }
-      }
+      gasPrice: 1000000000 // 1 gwei
     },
-    baseGoerli: {
-      url: "https://goerli.base.org",
-      accounts: [PRIVATE_KEY],
+    base_goerli: {
+      url: process.env.BASE_GOERLI_RPC_URL || "https://goerli.base.org",
+      accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
       chainId: 84531,
-      verify: {
-        etherscan: {
-          apiKey: BASESCAN_API_KEY
-        }
-      }
+      gasPrice: 1000000000 // 1 gwei
+    },
+    hyperliquid: {
+      url: process.env.HYPERLIQUID_RPC_URL,
+      accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
+      chainId: Number(process.env.HYPERLIQUID_CHAIN_ID)
     }
   },
   etherscan: {
     apiKey: {
-      base: BASESCAN_API_KEY,
-      baseGoerli: BASESCAN_API_KEY
+      base: process.env.BASESCAN_API_KEY,
+      base_goerli: process.env.BASESCAN_API_KEY
     },
     customChains: [
       {
@@ -68,7 +51,7 @@ module.exports = {
         }
       },
       {
-        network: "baseGoerli",
+        network: "base_goerli",
         chainId: 84531,
         urls: {
           apiURL: "https://api-goerli.basescan.org/api",
@@ -77,17 +60,6 @@ module.exports = {
       }
     ]
   },
-  gasReporter: {
-    enabled: process.env.REPORT_GAS === "true",
-    currency: "USD",
-    excludeContracts: ["test/"],
-    coinmarketcap: process.env.COINMARKETCAP_API_KEY
-  },
-  docgen: {
-    path: './docs',
-    clear: true,
-    runOnCompile: false
-  },
   paths: {
     sources: "./contracts",
     tests: "./test",
@@ -95,6 +67,6 @@ module.exports = {
     artifacts: "./artifacts"
   },
   mocha: {
-    timeout: 40000
+    timeout: 60000
   }
 };
