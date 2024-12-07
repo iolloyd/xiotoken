@@ -55,6 +55,7 @@ contract XIOTokenManager is AccessControl, ReentrancyGuard, Pausable {
         string action,
         string reason
     );
+
     
     /**
      * @dev Constructor
@@ -101,6 +102,7 @@ contract XIOTokenManager is AccessControl, ReentrancyGuard, Pausable {
             "Daily limit exceeded"
         );
         
+
         bytes32 requestId = keccak256(
             abi.encodePacked(
                 recipient,
@@ -121,7 +123,7 @@ contract XIOTokenManager is AccessControl, ReentrancyGuard, Pausable {
         });
         
         dailyOperations[msg.sender] += amount;
-        
+
         emit TransferRequested(requestId, recipient, amount, executionTime);
         
         return requestId;
@@ -148,6 +150,7 @@ contract XIOTokenManager is AccessControl, ReentrancyGuard, Pausable {
             xioToken.balanceOf(address(this)) >= request.amount,
             "Insufficient balance"
         );
+
         
         request.executed = true;
         

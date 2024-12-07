@@ -64,6 +64,7 @@ async function main() {
         ],
         admins: [
             governanceAddress // Governance contract as admin
+
         ],
         validation: {
             name: "basic",
@@ -89,6 +90,7 @@ async function main() {
     console.log("- Snapshot UI: https://snapshot.org/#/xio.eth");
     console.log("- Governance Contract:", governanceAddress);
     console.log("- XIO Token Contract:", tokenAddress);
+
 }
 
 main()
