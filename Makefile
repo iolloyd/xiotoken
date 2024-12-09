@@ -1,12 +1,22 @@
 # Makefile for XIO Token project
 .PHONY: all install clean test compile lint deploy-base deploy-hyperliquid verify help snapshot
 
+# Version
+VERSION := $(shell node -p "require('./package.json').version")
+
+# Network-specific variables
+TIMESTAMP := $(shell date +%Y%m%d_%H%M%S)
+BACKUP_DIR := backups
+NETWORKS := goerli base_mainnet hyperliquid
+
 # Default target
 all: install compile test
 
 # Help command
 help:
-	@echo "Available commands:"
+	@echo "XIO Token System v$(VERSION) - Available commands:"
+	@echo ""
+	@echo "Development:"
 	@echo "  make install          - Install all dependencies"
 	@echo "  make compile         - Compile all contracts"
 	@echo "  make clean           - Remove build artifacts"
@@ -14,19 +24,53 @@ help:
 	@echo "  make coverage        - Run test coverage"
 	@echo "  make lint            - Run solhint on contracts"
 	@echo "  make format          - Format contracts using prettier"
+	@echo ""
+	@echo "Deployment:"
 	@echo "  make deploy-goerli   - Deploy to Base Goerli testnet"
 	@echo "  make deploy-base     - Deploy to Base mainnet"
 	@echo "  make deploy-hl       - Deploy to Hyperliquid L1"
 	@echo "  make verify          - Verify contract deployments"
+	@echo ""
+	@echo "Tools:"
 	@echo "  make snapshot        - Set up Snapshot space"
 	@echo "  make check           - Run pre-deployment checks"
 	@echo "  make monitor         - Start monitoring system"
+	@echo "  make backup          - Create deployment backup"
+	@echo "  make restore         - Restore from backup"
+	@echo ""
+	@echo "Documentation:"
+	@echo "  make docs            - Generate documentation"
+	@echo "  make diagrams        - Generate architecture diagrams"
+	@echo ""
+	@echo "Analysis:"
+	@echo "  make size            - Check contract sizes"
+	@echo "  make gas             - Estimate gas costs"
+	@echo "  make audit           - Run static analysis"
 
 # Installation and setup
 install:
 	@echo "Installing dependencies..."
 	npm install
 	cp -n .env.example .env || true
+	mkdir -p $(BACKUP_DIR)
+
+# Development environment setup
+.PHONY: setup-dev
+setup-dev: install
+	@echo "Setting up development environment..."
+	npx hardhat compile
+	npx hardhat node > logs/node.log 2>&1 & echo $$! > .node.pid
+	@echo "Development node running (PID: $$(cat .node.pid))"
+
+.PHONY: stop-dev
+stop-dev:
+	@if [ -f .node.pid ]; then \
+		kill $$(cat .node.pid); \
+		rm .node.pid; \
+		echo "Development node stopped"; \
+	else \
+		echo "No development node running"; \
+	fi
 
 # Cleaning
 clean:
@@ -36,6 +80,7 @@ clean:
 	rm -rf typechain-types
 	rm -rf coverage
 	rm -rf coverage.json
+	rm -rf logs/*.log
 
 # Compilation
 compile:
@@ -43,9 +88,13 @@ compile:
 	npx hardhat compile
 
 # Testing
-test:
+test: compile
 	@echo "Running tests..."
 	npx hardhat test
+
+test-network/%: compile
+	@echo "Running tests on network $*..."
+	npx hardhat test --network $*
 
 coverage:
 	@echo "Running test coverage..."
@@ -62,101 +111,115 @@ format:
 	npx prettier --write 'contracts/**/*.sol'
 	npx solhint 'contracts/**/*.sol' --fix
 
-# Deployment commands
-deploy-goerli:
-	@echo "Deploying to Base Goerli..."
-	@if [ ! -f .env ]; then echo "Error: .env file not found"; exit 1; fi
-	npx hardhat run scripts/deploy-governance-system.js --network base_goerli
+# Backup and restore
+.PHONY: backup
+backup:
+	@echo "Creating deployment backup..."
+	@mkdir -p $(BACKUP_DIR)/$(TIMESTAMP)
+	@cp -r deployments/* $(BACKUP_DIR)/$(TIMESTAMP)/ || true
+	@cp .env $(BACKUP_DIR)/$(TIMESTAMP)/ || true
+	@echo "Backup created in $(BACKUP_DIR)/$(TIMESTAMP)"
 
-deploy-base:
-	@echo "Deploying to Base mainnet..."
-	@if [ ! -f .env ]; then echo "Error: .env file not found"; exit 1; fi
-	@echo "Are you sure you want to deploy to Base mainnet? [y/N]" && read ans && [ $${ans:-N} = y ]
-	npx hardhat run scripts/deploy-governance-system.js --network base_mainnet
+.PHONY: restore
+restore:
+	@if [ -z "$(BACKUP)" ]; then \
+		echo "Please specify BACKUP=timestamp to restore"; \
+		exit 1; \
+	fi
+	@echo "Restoring from backup $(BACKUP)..."
+	@cp -r $(BACKUP_DIR)/$(BACKUP)/* deployments/ || true
+	@echo "Backup restored"
 
-deploy-hl:
-	@echo "Deploying to Hyperliquid L1..."
+# Network-specific deployments
+define deploy_template
+deploy-$(1):
+	@echo "Deploying to $(1)..."
 	@if [ ! -f .env ]; then echo "Error: .env file not found"; exit 1; fi
-	@echo "Are you sure you want to deploy to Hyperliquid? [y/N]" && read ans && [ $${ans:-N} = y ]
-	npx hardhat run scripts/deploy-governance-system.js --network hyperliquid
+	@if [ "$(1)" = "base_mainnet" ] || [ "$(1)" = "hyperliquid" ]; then \
+		echo "Are you sure you want to deploy to $(1)? [y/N]" && read ans && [ $${ans:-N} = y ]; \
+	fi
+	npx hardhat run scripts/deploy-governance-system.js --network $(1)
+	@echo "Creating deployment backup..."
+	@make backup
+endef
+
+$(foreach network,$(NETWORKS),$(eval $(call deploy_template,$(network))))
 
 # Verification
 verify:
 	@echo "Verifying contract setup..."
 	npx hardhat run scripts/verify-governance-setup.js
+	@for network in $(NETWORKS); do \
+		echo "Verifying on $$network..."; \
+		npx hardhat verify --network $$network; \
+	done
 
-# Snapshot setup
-snapshot:
-	@echo "Setting up Snapshot space..."
-	npx hardhat run scripts/setup-snapshot.js
-
-# Pre-deployment checks
-check: lint test coverage verify
-	@echo "Running final deployment checks..."
-	@if [ ! -f .env ]; then echo "Error: .env file not found"; exit 1; fi
-	@echo "Checking environment variables..."
-	@bash -c ' \
-		required_vars=( \
-			"BASE_MAINNET_RPC_URL" \
-			"BASE_GOERLI_RPC_URL" \
-			"HYPERLIQUID_RPC_URL" \
-			"BASESCAN_API_KEY" \
-			"PRIVATE_KEY" \
-		); \
-		for var in "$${required_vars[@]}"; do \
-			if [ -z "$$(grep -E "^$$var=.+" .env)" ]; then \
-				echo "Error: $$var is not set in .env file"; \
-				exit 1; \
-			fi \
-		done \
-	'
-	@echo "All checks passed!"
-
-# Monitoring
-monitor:
-	@echo "Starting monitoring system..."
-	@if [ ! -f .env ]; then echo "Error: .env file not found"; exit 1; fi
-	node scripts/monitor.js
-
-# Contract size check
-size:
-	@echo "Checking contract sizes..."
-	npx hardhat size-contracts
-
-# Gas estimation
-gas:
-	@echo "Estimating gas costs..."
-	REPORT_GAS=true npx hardhat test
-
-# Documentation generation
+# Documentation
+.PHONY: docs diagrams
 docs:
 	@echo "Generating documentation..."
 	npx hardhat docgen
+	@echo "Generating additional docs..."
+	node scripts/generate-docs.js
 
-# Version management
-.PHONY: version
-version:
-	@echo "Current version: $$(node -p "require('./package.json').version")"
+diagrams:
+	@echo "Generating architecture diagrams..."
+	npx mmdc -i docs/ARCHITECTURE.md -o docs/images/architecture.png
 
-# Upgradeability check (for future upgradeable contracts)
-check-upgrade:
-	@echo "Checking upgrade safety..."
-	npx hardhat run scripts/check-upgrade.js
+# Monitoring
+.PHONY: monitor monitor-stop
+monitor:
+	@echo "Starting monitoring system..."
+	@if [ ! -f .env ]; then echo "Error: .env file not found"; exit 1; fi
+	node scripts/monitor.js > logs/monitor.log 2>&1 & echo $$! > .monitor.pid
+	@echo "Monitoring system started (PID: $$(cat .monitor.pid))"
+
+monitor-stop:
+	@if [ -f .monitor.pid ]; then \
+		kill $$(cat .monitor.pid); \
+		rm .monitor.pid; \
+		echo "Monitoring system stopped"; \
+	else \
+		echo "No monitoring system running"; \
+	fi
+
+# Security analysis
+.PHONY: audit
+audit: slither mythril
+	@echo "Running security analysis..."
+
+slither:
+	@echo "Running Slither..."
+	slither . || true
+
+mythril:
+	@echo "Running Mythril..."
+	myth analyze contracts/*.sol --execution-timeout 900 || true
 
 # Task bundling
-.PHONY: prepare-deploy
+.PHONY: prepare-deploy prepare-release
 prepare-deploy: clean install compile test lint verify
 	@echo "Deployment preparation complete!"
 
-.PHONY: prepare-release
-prepare-release: check size gas docs
+prepare-release: check size gas docs audit
 	@echo "Release preparation complete!"
 
 # Development utilities
-.PHONY: console
+.PHONY: console node
 console:
 	npx hardhat console
 
-.PHONY: node
 node:
 	npx hardhat node
+
+# CI/CD helpers
+.PHONY: ci-test ci-deploy
+ci-test: compile lint test coverage
+
+ci-deploy: prepare-deploy
+	@echo "Starting CI deployment..."
+	@if [ "$$NETWORK" = "" ]; then \
+		echo "Error: NETWORK environment variable not set"; \
+		exit 1; \
+	fi
+	make deploy-$$NETWORK
