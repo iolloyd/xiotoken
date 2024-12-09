@@ -265,26 +265,4 @@ contract XGEN is ERC20, ERC20Burnable, Pausable, AccessControl, ERC20Permit, Ree
             lastTransferTimestamp[from] = block.timestamp;
         }
         
-        // Check rate limit
-        if (transferredInPeriod[from] + amount > rateLimitAmount) {
-            revert RateLimitExceeded(from, to, amount);
-        }
-        
-        transferredInPeriod[from] += amount;
-        super._transfer(from, to, amount);
-    }
-
-    /**
-     * @dev Adds pre-transfer checks
-     */
-    function _beforeTokenTransfer(
-        address from,
-        address to,
-        uint256
-    ) internal override whenNotPaused {
-        // Skip checks for minting
-        if (from != address(0)) {
-            if (!whitelist[from] || !whitelist[to]) revert NotWhitelisted(from);
-        }
-    }
-}
+        // Check rate
