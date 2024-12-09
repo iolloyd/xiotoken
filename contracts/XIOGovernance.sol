@@ -6,6 +6,11 @@ import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
+interface IXIO is IERC20 {
+    function hasRole(bytes32 role, address account) external view returns (bool);
+    function GOVERNANCE_ROLE() external view returns (bytes32);
+}
+
 /**
  * @title XIOGovernance
  * @notice Handles governance integration with Snapshot and proposal execution
@@ -25,7 +30,7 @@ contract XIOGovernance is AccessControl, ReentrancyGuard {
     // Governance parameters
     uint256 public quorumThreshold;
     uint256 public proposalThreshold;
-    IERC20 public immutable xioToken;
+    IXIO public immutable xioToken;
     
     // Events
     event ProposalScheduled(bytes32 indexed proposalId, uint256 executionTime);
@@ -48,7 +53,7 @@ contract XIOGovernance is AccessControl, ReentrancyGuard {
         require(_quorum > 0, "Invalid quorum");
         require(_proposalThreshold > 0, "Invalid threshold");
         
-        xioToken = IERC20(_token);
+        xioToken = IXIO(_token);
         quorumThreshold = _quorum;
         proposalThreshold = _proposalThreshold;
         
@@ -70,7 +75,7 @@ contract XIOGovernance is AccessControl, ReentrancyGuard {
         onlyRole(PROPOSER_ROLE)
     {
         require(!proposalExecuted[proposalId], "Already executed");
-        require(signatures.length >= 3, "Insufficient signatures"); // Minimum 3 signatures
+        require(signatures.length >= 3, "Insufficient signatures");
         
         // Verify signatures (implementation depends on Snapshot specifics)
         // This is a placeholder for actual signature verification
@@ -113,9 +118,19 @@ contract XIOGovernance is AccessControl, ReentrancyGuard {
         proposalExecuted[proposalId] = true;
         
         // Execute each call
+        string memory errorMessage = "Proposal execution failed";
         for (uint256 i = 0; i < targets.length; i++) {
-            (bool success, ) = targets[i].call{value: values[i]}(calldatas[i]);
-            require(success, "Call failed");
+            (bool success, bytes memory returnData) = targets[i].call{value: values[i]}(calldatas[i]);
+            if (!success) {
+                if (returnData.length > 0) {
+                    assembly {
+                        let returnDataSize := mload(returnData)
+                        revert(add(32, returnData), returnDataSize)
+                    }
+                } else {
+                    revert(errorMessage);
+                }
+            }
         }
         
         emit ProposalExecuted(proposalId, msg.sender);
@@ -167,10 +182,22 @@ contract XIOGovernance is AccessControl, ReentrancyGuard {
             "Length mismatch"
         );
         
+        proposalExecuted[proposalId] = true;
+        
         // Execute emergency actions
+        string memory errorMessage = "Emergency action failed";
         for (uint256 i = 0; i < targets.length; i++) {
-            (bool success, ) = targets[i].call{value: values[i]}(calldatas[i]);
-            require(success, "Call failed");
+            (bool success, bytes memory returnData) = targets[i].call{value: values[i]}(calldatas[i]);
+            if (!success) {
+                if (returnData.length > 0) {
+                    assembly {
+                        let returnDataSize := mload(returnData)
+                        revert(add(32, returnData), returnDataSize)
+                    }
+                } else {
+                    revert(errorMessage);
+                }
+            }
         }
         
         emit EmergencyActionExecuted(proposalId, reason);

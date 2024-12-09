@@ -42,6 +42,7 @@ contract XIO is ERC20, ERC20Burnable, ERC20Permit, Pausable, AccessControl, Reen
     uint256 public totalBurned;
     uint256 public lastBurnTimestamp;
     uint256 public lastQuarterlyBurn;
+    bool public firstBurnExecuted;
     
     // Emergency recovery
     address public emergencyRecoveryAddress;
@@ -80,6 +81,10 @@ contract XIO is ERC20, ERC20Burnable, ERC20Permit, Pausable, AccessControl, Reen
         rateLimitPeriod = _rateLimitPeriod;
         emergencyRecoveryAddress = _emergencyRecovery;
 
+        // Initialize burn tracking
+        lastQuarterlyBurn = block.timestamp;
+        firstBurnExecuted = false;
+
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
         _grantRole(PAUSER_ROLE, msg.sender);
         _grantRole(MINTER_ROLE, msg.sender);
@@ -87,7 +92,9 @@ contract XIO is ERC20, ERC20Burnable, ERC20Permit, Pausable, AccessControl, Reen
         _grantRole(OPERATOR_ROLE, msg.sender);
         _grantRole(GOVERNANCE_ROLE, msg.sender);
         
-        // Mint initial supply
+        // Set initial rate limit exemption for deployer
+        isRateLimitExempt[msg.sender] = true;
+        
         _mint(msg.sender, TOTAL_SUPPLY);
     }
 
@@ -133,14 +140,23 @@ contract XIO is ERC20, ERC20Burnable, ERC20Permit, Pausable, AccessControl, Reen
         nonReentrant 
     {
         require(amount > 0, "XIO: Zero burn amount");
-        require(
-            block.timestamp >= lastQuarterlyBurn + QUARTERLY_BURN_INTERVAL,
-            "XIO: Too early for burn"
-        );
+        
+        if (!firstBurnExecuted) {
+            firstBurnExecuted = true;
+            lastQuarterlyBurn = block.timestamp;
+        } else {
+            require(
+                block.timestamp >= lastQuarterlyBurn + QUARTERLY_BURN_INTERVAL,
+                "XIO: Too early for burn"
+            );
+        }
+        
         require(totalBurned + amount <= MAX_BURN_SUPPLY, "XIO: Exceeds burn limit");
         
         totalBurned += amount;
         lastQuarterlyBurn = block.timestamp;
+        lastBurnTimestamp = block.timestamp;
+        
         _burn(msg.sender, amount);
         
         uint256 quarter = ((block.timestamp / 86400 / 90) + 1);

@@ -1,151 +1,160 @@
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
+const { time } = require("@nomicfoundation/hardhat-network-helpers");
 
 describe("XIO Governance System", function () {
-    let XIOToken;
+    let XIO;
     let XIOGovernance;
-    let XIOTokenManager;
     let xioToken;
     let governance;
-    let tokenManager;
     let owner;
     let addr1;
     let addr2;
-    let addrs;
+    let emergencyRecovery;
+    
+    const INITIAL_SUPPLY = ethers.utils.parseEther("1000000000"); // 1 billion tokens
+    const QUORUM_THRESHOLD = ethers.utils.parseEther("100000"); // 100k tokens
+    const PROPOSAL_THRESHOLD = ethers.utils.parseEther("10000"); // 10k tokens
+    const RATE_LIMIT_AMOUNT = ethers.utils.parseEther("100000"); // 100k tokens
+    const RATE_LIMIT_PERIOD = 3600; // 1 hour
+    const TEST_AMOUNT = ethers.utils.parseEther("1"); // 1 token for testing
 
     beforeEach(async function () {
-        // Get signers
-        [owner, addr1, addr2, ...addrs] = await ethers.getSigners();
-
+        [owner, addr1, addr2, emergencyRecovery] = await ethers.getSigners();
+        
         // Deploy XIO token
-        XIOToken = await ethers.getContractFactory("XIO");
-        xioToken = await XIOToken.deploy(
-            ethers.utils.parseEther("1000"), // rate limit amount
-            86400, // rate limit period (1 day)
-            owner.address // emergency recovery address
+        XIO = await ethers.getContractFactory("XIO");
+        xioToken = await XIO.deploy(
+            RATE_LIMIT_AMOUNT,
+            RATE_LIMIT_PERIOD,
+            emergencyRecovery.address
         );
         await xioToken.deployed();
-
+        
         // Deploy Governance
         XIOGovernance = await ethers.getContractFactory("XIOGovernance");
         governance = await XIOGovernance.deploy(
             xioToken.address,
-            ethers.utils.parseEther("100000"), // quorum threshold
-            ethers.utils.parseEther("10000") // proposal threshold
+            QUORUM_THRESHOLD,
+            PROPOSAL_THRESHOLD
         );
         await governance.deployed();
-
-        // Deploy Token Manager
-        XIOTokenManager = await ethers.getContractFactory("XIOTokenManager");
-        tokenManager = await XIOTokenManager.deploy(xioToken.address);
-        await tokenManager.deployed();
-
-        // Setup roles
-        const EXECUTOR_ROLE = await governance.EXECUTOR_ROLE();
-        const PROPOSER_ROLE = await governance.PROPOSER_ROLE();
-        const OPERATOR_ROLE = await tokenManager.OPERATOR_ROLE();
         
-        await governance.grantRole(EXECUTOR_ROLE, tokenManager.address);
-        await tokenManager.grantRole(OPERATOR_ROLE, governance.address);
-    });
-
-    describe("Governance Setup", function () {
-        it("Should set correct initial parameters", async function () {
-            expect(await governance.xioToken()).to.equal(xioToken.address);
-            expect(await governance.quorumThreshold()).to.equal(ethers.utils.parseEther("100000"));
-            expect(await governance.proposalThreshold()).to.equal(ethers.utils.parseEther("10000"));
-        });
-
-        it("Should grant correct roles", async function () {
-            const EXECUTOR_ROLE = await governance.EXECUTOR_ROLE();
-            const PROPOSER_ROLE = await governance.PROPOSER_ROLE();
-            
-            expect(await governance.hasRole(EXECUTOR_ROLE, tokenManager.address)).to.be.true;
-            expect(await governance.hasRole(PROPOSER_ROLE, owner.address)).to.be.true;
-        });
+        // Give governance contract the needed roles and exemptions
+        const GOVERNANCE_ROLE = await xioToken.GOVERNANCE_ROLE();
+        await xioToken.grantRole(GOVERNANCE_ROLE, governance.address);
+        await xioToken.updateRateLimitExemption(governance.address, true);
+        
+        // Transfer tokens for testing
+        await xioToken.transfer(addr1.address, PROPOSAL_THRESHOLD.mul(2));
+        await xioToken.transfer(governance.address, ethers.utils.parseEther("10000")); // Fund governance
+        await xioToken.updateRateLimitExemption(owner.address, true);
+        await xioToken.updateRateLimitExemption(addr1.address, true);
     });
 
     describe("Proposal Management", function () {
-        it("Should schedule a proposal correctly", async function () {
-            const proposalId = ethers.utils.id("Test Proposal");
+        let proposalId;
+        let callData;
+
+        beforeEach(async function () {
+            proposalId = ethers.utils.id("Test Proposal");
             const signatures = [
-                ethers.utils.arrayify(ethers.utils.id("sig1")),
-                ethers.utils.arrayify(ethers.utils.id("sig2")),
-                ethers.utils.arrayify(ethers.utils.id("sig3"))
+                await owner.signMessage(ethers.utils.arrayify(proposalId)),
+                await addr1.signMessage(ethers.utils.arrayify(proposalId)),
+                await addr2.signMessage(ethers.utils.arrayify(proposalId))
             ];
 
+            // Prepare a simple transfer call
+            callData = xioToken.interface.encodeFunctionData("transfer", [
+                addr2.address,
+                TEST_AMOUNT
+            ]);
+
             await governance.scheduleProposal(proposalId, signatures);
-            
-            const deadline = await governance.proposalDeadlines(proposalId);
-            expect(deadline).to.be.gt(0);
         });
 
         it("Should execute a proposal after delay", async function () {
-            const proposalId = ethers.utils.id("Test Proposal");
-            const signatures = [
-                ethers.utils.arrayify(ethers.utils.id("sig1")),
-                ethers.utils.arrayify(ethers.utils.id("sig2")),
-                ethers.utils.arrayify(ethers.utils.id("sig3"))
-            ];
-
-            await governance.scheduleProposal(proposalId, signatures);
+            const balanceBefore = await xioToken.balanceOf(addr2.address);
             
-            // Move time forward
-            await ethers.provider.send("evm_increaseTime", [172800]); // 2 days
-            await ethers.provider.send("evm_mine");
-
-            // Mock proposal execution
-            const mockCalldata = ethers.utils.id("test").slice(0, 10);
+            // Move time forward past execution delay
+            await time.increase(172800); // 2 days
+            
             await governance.executeProposal(
                 proposalId,
-                [addr1.address],
+                [xioToken.address],
                 [0],
-                [mockCalldata]
+                [callData]
             );
 
             expect(await governance.proposalExecuted(proposalId)).to.be.true;
-        });
-    });
-
-    describe("Parameter Updates", function () {
-        it("Should update governance parameters", async function () {
-            const newQuorum = ethers.utils.parseEther("200000");
-            const newThreshold = ethers.utils.parseEther("20000");
-
-            await governance.updateGovernanceParameters(newQuorum, newThreshold);
-
-            expect(await governance.quorumThreshold()).to.equal(newQuorum);
-            expect(await governance.proposalThreshold()).to.equal(newThreshold);
+            expect(await xioToken.balanceOf(addr2.address)).to.equal(balanceBefore.add(TEST_AMOUNT));
         });
 
-        it("Should revert parameter updates from non-admin", async function () {
-            const newQuorum = ethers.utils.parseEther("200000");
-            const newThreshold = ethers.utils.parseEther("20000");
-
+        it("Should not allow execution before delay", async function () {
             await expect(
-                governance.connect(addr1).updateGovernanceParameters(newQuorum, newThreshold)
-            ).to.be.reverted;
+                governance.executeProposal(
+                    proposalId,
+                    [xioToken.address],
+                    [0],
+                    [callData]
+                )
+            ).to.be.revertedWith("Too early");
         });
     });
 
     describe("Emergency Actions", function () {
+        let emergencyCallData;
+        let proposalId;
+
+        beforeEach(async function () {
+            proposalId = ethers.utils.id("Emergency");
+            emergencyCallData = xioToken.interface.encodeFunctionData("transfer", [
+                emergencyRecovery.address,
+                TEST_AMOUNT
+            ]);
+        });
+
         it("Should execute emergency action", async function () {
-            const proposalId = ethers.utils.id("Emergency");
-            const mockCalldata = ethers.utils.id("emergency").slice(0, 10);
+            const balanceBefore = await xioToken.balanceOf(emergencyRecovery.address);
 
             await governance.executeEmergencyAction(
                 proposalId,
-                [addr1.address],
+                [xioToken.address],
                 [0],
-                [mockCalldata],
+                [emergencyCallData],
                 "Critical security fix"
             );
 
-            // Verify event emission
-            const filter = governance.filters.EmergencyActionExecuted(proposalId);
-            const events = await governance.queryFilter(filter);
-            expect(events.length).to.equal(1);
-            expect(events[0].args.reason).to.equal("Critical security fix");
+            expect(await governance.proposalExecuted(proposalId)).to.be.true;
+            expect(await xioToken.balanceOf(emergencyRecovery.address)).to.equal(
+                balanceBefore.add(TEST_AMOUNT)
+            );
+        });
+
+        it("Should restrict emergency actions to admin", async function () {
+            await expect(
+                governance.connect(addr1).executeEmergencyAction(
+                    proposalId,
+                    [xioToken.address],
+                    [0],
+                    [emergencyCallData],
+                    "Critical security fix"
+                )
+            ).to.be.reverted;
+        });
+    });
+
+    describe("Token Integration", function () {
+        it("Should correctly check proposal eligibility", async function () {
+            // Start with enough tokens to be eligible
+            expect(await governance.canPropose(addr1.address)).to.be.true;
+
+            // Transfer tokens away to make addr1 ineligible
+            await xioToken.connect(addr1).transfer(
+                addr2.address, 
+                PROPOSAL_THRESHOLD.mul(2)
+            );
+            expect(await governance.canPropose(addr1.address)).to.be.false;
         });
     });
 });

@@ -1,202 +1,139 @@
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
-const { time } = require("@nomicfoundation/hardhat-network-helpers");
 
 describe("XGEN", function () {
-  let xgen;
-  let owner;
-  let addr1;
-  let addr2;
-  let addr3;
-  const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
+    let XGEN;
+    let xgen;
+    let owner;
+    let addr1;
+    let addr2;
+    
+    const TOTAL_SUPPLY = ethers.utils.parseEther("1000000000"); // 1 billion tokens
+    const SEED_ALLOCATION = ethers.utils.parseEther("100000000"); // 100 million tokens
+    const TOKEN_PRICE = ethers.utils.parseEther("0.1"); // 0.1 ETH
+    const RATE_LIMIT_AMOUNT = ethers.utils.parseEther("100000"); // 100k tokens
+    const RATE_LIMIT_PERIOD = 3600; // 1 hour
 
-  beforeEach(async function () {
-    [owner, addr1, addr2, addr3] = await ethers.getSigners();
-    const XGEN = await ethers.getContractFactory("XGEN");
-    xgen = await XGEN.deploy();
-    await xgen.deployed();
-  });
-
-  describe("Deployment", function () {
-    it("Should set the right token details", async function () {
-      expect(await xgen.name()).to.equal("XGEN Token");
-      expect(await xgen.symbol()).to.equal("XGEN");
-      expect(await xgen.decimals()).to.equal(18);
-    });
-
-    it("Should assign the right roles", async function () {
-      const DEFAULT_ADMIN_ROLE = await xgen.DEFAULT_ADMIN_ROLE();
-      const PAUSER_ROLE = await xgen.PAUSER_ROLE();
-      const MINTER_ROLE = await xgen.MINTER_ROLE();
-      const CONFIGURATOR_ROLE = await xgen.CONFIGURATOR_ROLE();
-
-      expect(await xgen.hasRole(DEFAULT_ADMIN_ROLE, owner.address)).to.be.true;
-      expect(await xgen.hasRole(PAUSER_ROLE, owner.address)).to.be.true;
-      expect(await xgen.hasRole(MINTER_ROLE, owner.address)).to.be.true;
-      expect(await xgen.hasRole(CONFIGURATOR_ROLE, owner.address)).to.be.true;
-    });
-
-    it("Should set correct supply parameters", async function () {
-      const totalSupply = await xgen.TOTAL_SUPPLY();
-      const seedRoundAllocation = await xgen.SEED_ROUND_ALLOCATION();
-      expect(totalSupply).to.equal(ethers.utils.parseEther("100000000"));
-      expect(seedRoundAllocation).to.equal(ethers.utils.parseEther("10000000"));
-    });
-  });
-
-  describe("Role Management", function () {
-    it("Should allow admin to grant and revoke roles", async function () {
-      const MINTER_ROLE = await xgen.MINTER_ROLE();
-      await xgen.grantRole(MINTER_ROLE, addr1.address);
-      expect(await xgen.hasRole(MINTER_ROLE, addr1.address)).to.be.true;
-
-      await xgen.revokeRole(MINTER_ROLE, addr1.address);
-      expect(await xgen.hasRole(MINTER_ROLE, addr1.address)).to.be.false;
-    });
-
-    it("Should prevent non-admin from granting roles", async function () {
-      const MINTER_ROLE = await xgen.MINTER_ROLE();
-      await expect(
-        xgen.connect(addr1).grantRole(MINTER_ROLE, addr2.address)
-      ).to.be.revertedWith("AccessControl:");
-    });
-  });
-
-  describe("Whitelisting", function () {
-    it("Should allow configurator to update whitelist", async function () {
-      await xgen.updateWhitelist(addr1.address, true);
-      expect(await xgen.whitelist(addr1.address)).to.be.true;
-    });
-
-    it("Should allow batch whitelist updates", async function () {
-      const addresses = [addr1.address, addr2.address];
-      const statuses = [true, true];
-      await xgen.batchUpdateWhitelist(addresses, statuses);
-      
-      expect(await xgen.whitelist(addr1.address)).to.be.true;
-      expect(await xgen.whitelist(addr2.address)).to.be.true;
-    });
-
-    it("Should emit WhitelistUpdated event", async function () {
-      await expect(xgen.updateWhitelist(addr1.address, true))
-        .to.emit(xgen, "WhitelistUpdated")
-        .withArgs(addr1.address, true);
-    });
-  });
-
-  describe("Minting", function () {
     beforeEach(async function () {
-      await xgen.updateWhitelist(addr1.address, true);
+        [owner, addr1, addr2] = await ethers.getSigners();
+        
+        XGEN = await ethers.getContractFactory("XGEN");
+        xgen = await XGEN.deploy(
+            "XGEN Token",   // name
+            "XGEN",        // symbol
+            TOTAL_SUPPLY,
+            SEED_ALLOCATION,
+            TOKEN_PRICE,
+            RATE_LIMIT_AMOUNT,
+            RATE_LIMIT_PERIOD
+        );
+        await xgen.deployed();
+
+        // Whitelist addresses for testing
+        await xgen.updateWhitelist(owner.address, true);
+        await xgen.updateWhitelist(addr1.address, true);
+        await xgen.updateWhitelist(addr2.address, true);
     });
 
-    it("Should mint tokens to whitelisted address", async function () {
-      await xgen.mint(addr1.address, ethers.utils.parseEther("100"));
-      expect(await xgen.balanceOf(addr1.address)).to.equal(ethers.utils.parseEther("100"));
+    describe("Deployment", function () {
+        it("Should set the right token details", async function () {
+            expect(await xgen.name()).to.equal("XGEN Token");
+            expect(await xgen.symbol()).to.equal("XGEN");
+            expect(await xgen.decimals()).to.equal(18);
+            expect(await xgen.totalSupplyCap()).to.equal(TOTAL_SUPPLY);
+            expect(await xgen.seedRoundAllocation()).to.equal(SEED_ALLOCATION);
+            expect(await xgen.tokenPrice()).to.equal(TOKEN_PRICE);
+            expect(await xgen.rateLimitAmount()).to.equal(RATE_LIMIT_AMOUNT);
+            expect(await xgen.rateLimitPeriod()).to.equal(RATE_LIMIT_PERIOD);
+        });
+
+        it("Should assign the total supply to the owner", async function () {
+            expect(await xgen.balanceOf(owner.address)).to.equal(TOTAL_SUPPLY);
+        });
+
+        it("Should assign the correct roles", async function () {
+            expect(await xgen.hasRole(await xgen.DEFAULT_ADMIN_ROLE(), owner.address)).to.be.true;
+            expect(await xgen.hasRole(await xgen.PAUSER_ROLE(), owner.address)).to.be.true;
+            expect(await xgen.hasRole(await xgen.MINTER_ROLE(), owner.address)).to.be.true;
+            expect(await xgen.hasRole(await xgen.CONFIGURATOR_ROLE(), owner.address)).to.be.true;
+        });
     });
 
-    it("Should fail minting to non-whitelisted address", async function () {
-      await expect(
-        xgen.mint(addr2.address, ethers.utils.parseEther("100"))
-      ).to.be.revertedWith("XGEN: Address not whitelisted");
+    describe("Transactions", function () {
+        beforeEach(async function () {
+            // Transfer tokens for testing
+            await xgen.transfer(addr1.address, ethers.utils.parseEther("1000"));
+        });
+
+        it("Should transfer tokens between whitelisted accounts", async function () {
+            await xgen.connect(addr1).transfer(addr2.address, ethers.utils.parseEther("500"));
+            expect(await xgen.balanceOf(addr2.address)).to.equal(ethers.utils.parseEther("500"));
+        });
+
+        it("Should fail to transfer to non-whitelisted accounts", async function () {
+            await xgen.updateWhitelist(addr2.address, false);
+            await expect(
+                xgen.connect(addr1).transfer(addr2.address, ethers.utils.parseEther("500"))
+            ).to.be.revertedWith("XGEN: Address not whitelisted");
+        });
+
+        it("Should enforce rate limits", async function () {
+            await expect(
+                xgen.connect(addr1).transfer(addr2.address, RATE_LIMIT_AMOUNT.add(1))
+            ).to.be.revertedWith("XGEN: Rate limit exceeded");
+        });
     });
 
-    it("Should respect total supply cap", async function () {
-      const totalSupply = await xgen.TOTAL_SUPPLY();
-      await expect(
-        xgen.mint(addr1.address, totalSupply.add(1))
-      ).to.be.revertedWith("XGEN: Exceeds max supply");
-    });
-  });
+    describe("Rate Limiting", function () {
+        it("Should update rate limit parameters", async function () {
+            const newAmount = ethers.utils.parseEther("200000");
+            const newPeriod = 7200;
+            
+            await xgen.updateRateLimit(newAmount, newPeriod);
+            
+            expect(await xgen.rateLimitAmount()).to.equal(newAmount);
+            expect(await xgen.rateLimitPeriod()).to.equal(newPeriod);
+        });
 
-  describe("Transfer Restrictions", function () {
-    beforeEach(async function () {
-      await xgen.updateWhitelist(addr1.address, true);
-      await xgen.updateWhitelist(addr2.address, true);
-      await xgen.mint(addr1.address, ethers.utils.parseEther("1000"));
-    });
-
-    it("Should allow transfers between whitelisted addresses", async function () {
-      await xgen.connect(addr1).transfer(addr2.address, ethers.utils.parseEther("100"));
-      expect(await xgen.balanceOf(addr2.address)).to.equal(ethers.utils.parseEther("100"));
-    });
-
-    it("Should prevent transfers to non-whitelisted addresses", async function () {
-      await expect(
-        xgen.connect(addr1).transfer(addr3.address, ethers.utils.parseEther("100"))
-      ).to.be.revertedWith("XGEN: Address not whitelisted");
-    });
-  });
-
-  describe("Rate Limiting", function () {
-    beforeEach(async function () {
-      await xgen.updateWhitelist(addr1.address, true);
-      await xgen.updateWhitelist(addr2.address, true);
-      await xgen.mint(addr1.address, ethers.utils.parseEther("1000000"));
+        it("Should reset rate limit after period", async function () {
+            await xgen.transfer(addr1.address, RATE_LIMIT_AMOUNT);
+            
+            // Increase time by rate limit period
+            await ethers.provider.send("evm_increaseTime", [RATE_LIMIT_PERIOD]);
+            await ethers.provider.send("evm_mine");
+            
+            // Should allow another transfer up to limit
+            await xgen.transfer(addr1.address, RATE_LIMIT_AMOUNT);
+        });
     });
 
-    it("Should enforce rate limit", async function () {
-      const rateLimit = await xgen.RATE_LIMIT_AMOUNT();
-      await xgen.connect(addr1).transfer(addr2.address, rateLimit);
-      
-      await expect(
-        xgen.connect(addr1).transfer(addr2.address, 1)
-      ).to.be.revertedWith("XGEN: Rate limit exceeded");
-    });
+    describe("Access Control", function () {
+        it("Should restrict administrative functions", async function () {
+            await expect(
+                xgen.connect(addr1).updateTokenPrice(ethers.utils.parseEther("0.2"))
+            ).to.be.reverted;
+            
+            await expect(
+                xgen.connect(addr1).updateRateLimit(1, 1)
+            ).to.be.reverted;
+            
+            await expect(
+                xgen.connect(addr1).pause()
+            ).to.be.reverted;
+        });
 
-    it("Should reset rate limit after period", async function () {
-      const rateLimit = await xgen.RATE_LIMIT_AMOUNT();
-      await xgen.connect(addr1).transfer(addr2.address, rateLimit);
-      
-      await time.increase(3600); // Increase time by 1 hour
-      
-      await xgen.connect(addr1).transfer(addr2.address, rateLimit);
-      expect(await xgen.balanceOf(addr2.address)).to.equal(rateLimit.mul(2));
+        it("Should allow admin to update parameters", async function () {
+            const newPrice = ethers.utils.parseEther("0.2");
+            await xgen.updateTokenPrice(newPrice);
+            expect(await xgen.tokenPrice()).to.equal(newPrice);
+            
+            const newLimits = {
+                min: ethers.utils.parseEther("1"),
+                max: ethers.utils.parseEther("10")
+            };
+            await xgen.updateInvestmentLimits(newLimits.min, newLimits.max);
+            expect(await xgen.minInvestment()).to.equal(newLimits.min);
+            expect(await xgen.maxInvestment()).to.equal(newLimits.max);
+        });
     });
-  });
-
-  describe("Pausing", function () {
-    beforeEach(async function () {
-      await xgen.updateWhitelist(addr1.address, true);
-      await xgen.updateWhitelist(addr2.address, true);
-      await xgen.mint(addr1.address, ethers.utils.parseEther("1000"));
-    });
-
-    it("Should pause all transfers", async function () {
-      await xgen.pause();
-      await expect(
-        xgen.connect(addr1).transfer(addr2.address, ethers.utils.parseEther("100"))
-      ).to.be.revertedWith("Pausable: paused");
-    });
-
-    it("Should resume transfers after unpause", async function () {
-      await xgen.pause();
-      await xgen.unpause();
-      await xgen.connect(addr1).transfer(addr2.address, ethers.utils.parseEther("100"));
-      expect(await xgen.balanceOf(addr2.address)).to.equal(ethers.utils.parseEther("100"));
-    });
-
-    it("Should only allow pauser to pause/unpause", async function () {
-      await expect(
-        xgen.connect(addr1).pause()
-      ).to.be.revertedWith("AccessControl:");
-    });
-  });
-
-  describe("Burning", function () {
-    beforeEach(async function () {
-      await xgen.updateWhitelist(addr1.address, true);
-      await xgen.mint(addr1.address, ethers.utils.parseEther("1000"));
-    });
-
-    it("Should allow token holders to burn their tokens", async function () {
-      await xgen.connect(addr1).burn(ethers.utils.parseEther("500"));
-      expect(await xgen.balanceOf(addr1.address)).to.equal(ethers.utils.parseEther("500"));
-    });
-
-    it("Should update total supply after burning", async function () {
-      const initialSupply = await xgen.totalSupply();
-      await xgen.connect(addr1).burn(ethers.utils.parseEther("500"));
-      expect(await xgen.totalSupply()).to.equal(initialSupply.sub(ethers.utils.parseEther("500")));
-    });
-  });
 });

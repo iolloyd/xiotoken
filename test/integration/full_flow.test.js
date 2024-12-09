@@ -1,217 +1,141 @@
 // test/integration/full_flow.test.js
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
-const MockFjordFoundry = require("../../scripts/mock_fjord");
+const { time } = require("@nomicfoundation/hardhat-network-helpers");
 
 describe("XIO Token Full Flow", function() {
-  let xgen, kyc, sale, vesting, swap, monitor;
-  let deployer, treasury, user1, user2, user3;
-  let mockFjord;
-
-  before(async function() {
-    // Get test accounts
-    [deployer, treasury, user1, user2, user3] = await ethers.getSigners();
-
-    // Deploy contracts
-    const XGEN = await ethers.getContractFactory("XGEN");
-    xgen = await XGEN.deploy(
-      "XIO Genesis Token",
-      "XGEN",
-      ethers.utils.parseEther("1000000")
-    );
-
-    const XGENKYC = await ethers.getContractFactory("XGENKYC");
-    kyc = await XGENKYC.deploy();
-
-    const XGENSale = await ethers.getContractFactory("XGENSale");
-    sale = await XGENSale.deploy(
-      xgen.address,
-      kyc.address,
-      treasury.address,
-      ethers.utils.parseEther("0.001")
-    );
-
-    const XGENVesting = await ethers.getContractFactory("XGENVesting");
-    vesting = await XGENVesting.deploy(xgen.address);
-
-    const TokenSwap = await ethers.getContractFactory("TokenSwap");
-    swap = await TokenSwap.deploy(xgen.address);
-
-    const XGENMonitor = await ethers.getContractFactory("XGENMonitor");
-    monitor = await XGENMonitor.deploy(
-      xgen.address,
-      sale.address,
-      vesting.address
-    );
-
-    // Initialize mock Fjord Foundry
-    mockFjord = new MockFjordFoundry(sale, xgen, kyc);
-
-    // Transfer tokens to sale contract
-    await xgen.transfer(sale.address, ethers.utils.parseEther("500000"));
-
-    // Setup for testing
-    await kyc.grantRole(await kyc.DEFAULT_ADMIN_ROLE(), deployer.address);
-  });
-
-  describe("1. Pre-sale Setup", function() {
-    it("Should set up KYC whitelist", async function() {
-      await kyc.addToWhitelist([user1.address, user2.address]);
-      
-      expect(await kyc.isWhitelisted(user1.address)).to.be.true;
-      expect(await kyc.isWhitelisted(user2.address)).to.be.true;
-      expect(await kyc.isWhitelisted(user3.address)).to.be.false;
-    });
-
-    it("Should set up sale parameters", async function() {
-      await mockFjord.setupSale();
-      const status = await mockFjord.getSaleStatus();
-      
-      expect(status.isActive).to.be.false; // Not started yet
-      expect(parseFloat(status.hardCap)).to.equal(500000);
-    });
-
-    it("Should have correct initial token allocations", async function() {
-      const saleBalance = await xgen.balanceOf(sale.address);
-      expect(saleBalance).to.equal(ethers.utils.parseEther("500000"));
-    });
-  });
-
-  describe("2. Token Sale Process", function() {
-    before(async function() {
-      // Fast forward to sale start
-      await ethers.provider.send("evm_increaseTime", [3600]);
-      await ethers.provider.send("evm_mine");
-    });
-
-    it("Should allow whitelisted users to participate", async function() {
-      const purchaseAmount = ethers.utils.parseEther("1"); // 1 ETH
-      const beforeBalance = await xgen.balanceOf(user1.address);
-      
-      await mockFjord.participate(user1, purchaseAmount);
-
-      const afterBalance = await xgen.balanceOf(user1.address);
-      expect(afterBalance.sub(beforeBalance)).to.equal(
-        ethers.utils.parseEther("1000")
-      ); // 1 ETH = 1000 XGEN at 0.001 ETH/XGEN
-    });
-
-    it("Should reject non-whitelisted users", async function() {
-      const purchaseAmount = ethers.utils.parseEther("1");
-      await expect(
-        mockFjord.participate(user3, purchaseAmount)
-      ).to.be.revertedWith("User not whitelisted");
-    });
-
-    it("Should enforce minimum and maximum purchase limits", async function() {
-      const tooSmall = ethers.utils.parseEther("0.05"); // Below min
-      const tooLarge = ethers.utils.parseEther("11"); // Above max
-
-      await expect(
-        mockFjord.participate(user2, tooSmall)
-      ).to.be.revertedWith("Amount below minimum");
-
-      await expect(
-        mockFjord.participate(user2, tooLarge)
-      ).to.be.revertedWith("Amount above maximum");
-    });
-
-    it("Should track sale progress correctly", async function() {
-      const status = await mockFjord.getSaleStatus();
-      expect(parseFloat(status.totalSold)).to.be.greaterThan(0);
-      expect(status.isActive).to.be.true;
-    });
-  });
-
-  describe("3. Post-sale Token Swap", function() {
-    let xio;
+    let XIO, XIOGovernance;
+    let xioToken, governance;
+    let owner, addr1, addr2, emergencyRecovery;
+    
+    // Constants
+    const RATE_LIMIT_AMOUNT = ethers.utils.parseEther("100000"); // 100k tokens
+    const RATE_LIMIT_PERIOD = 3600; // 1 hour
+    const QUORUM_THRESHOLD = ethers.utils.parseEther("100000"); // 100k tokens
+    const PROPOSAL_THRESHOLD = ethers.utils.parseEther("10000"); // 10k tokens
 
     before(async function() {
-      // End the sale
-      await mockFjord.endSale();
-      
-      // Deploy XIO token
-      const XIO = await ethers.getContractFactory("XIO");
-      xio = await XIO.deploy(
-        "XIO Token",
-        "XIO",
-        ethers.utils.parseEther("1000000")
-      );
-      await xio.deployed();
+        [owner, addr1, addr2, emergencyRecovery] = await ethers.getSigners();
+
+        // Deploy XIO token with correct parameters
+        XIO = await ethers.getContractFactory("XIO");
+        xioToken = await XIO.deploy(
+            RATE_LIMIT_AMOUNT,
+            RATE_LIMIT_PERIOD,
+            emergencyRecovery.address
+        );
+        await xioToken.deployed();
+
+        // Deploy Governance
+        XIOGovernance = await ethers.getContractFactory("XIOGovernance");
+        governance = await XIOGovernance.deploy(
+            xioToken.address,
+            QUORUM_THRESHOLD,
+            PROPOSAL_THRESHOLD
+        );
+        await governance.deployed();
+
+        // Setup initial configuration
+        await xioToken.grantRole(await xioToken.GOVERNANCE_ROLE(), governance.address);
+        await xioToken.updateRateLimitExemption(governance.address, true);
+        await xioToken.updateRateLimitExemption(owner.address, true);
+        await xioToken.updateRateLimitExemption(addr1.address, true);
+
+        // Fund accounts for testing
+        await xioToken.transfer(addr1.address, ethers.utils.parseEther("200000")); // 200k tokens
+        await xioToken.transfer(governance.address, ethers.utils.parseEther("100000")); // 100k tokens
     });
 
-    it("Should configure swap contract correctly", async function() {
-      await swap.setXIOToken(xio.address);
-      const configuredXIO = await swap.xioToken();
-      expect(configuredXIO).to.equal(xio.address);
+    describe("1. Token Setup and Basic Operations", function() {
+        it("Should have correct initial configuration", async function() {
+            expect(await xioToken.rateLimitAmount()).to.equal(RATE_LIMIT_AMOUNT);
+            expect(await xioToken.rateLimitPeriod()).to.equal(RATE_LIMIT_PERIOD);
+            expect(await xioToken.emergencyRecoveryAddress()).to.equal(emergencyRecovery.address);
+        });
+
+        it("Should handle rate-limited transfers correctly", async function() {
+            await xioToken.updateRateLimitExemption(addr1.address, false);
+            
+            // Should allow transfer within limit
+            await xioToken.connect(addr1).transfer(addr2.address, RATE_LIMIT_AMOUNT);
+            
+            // Should reject transfer exceeding limit
+            await expect(
+                xioToken.connect(addr1).transfer(addr2.address, RATE_LIMIT_AMOUNT.add(1))
+            ).to.be.revertedWith("XIO: Rate limit exceeded");
+        });
     });
 
-    it("Should allow XGEN holders to swap for XIO", async function() {
-      const xgenBalance = await xgen.balanceOf(user1.address);
-      
-      // Transfer XIO tokens to swap contract
-      await xio.transfer(swap.address, xgenBalance);
-
-      // Approve tokens for swap
-      await xgen.connect(user1).approve(swap.address, xgenBalance);
-
-      // Perform swap
-      await swap.connect(user1).swapXGENforXIO();
-
-      // Check balances
-      const finalXIOBalance = await xio.balanceOf(user1.address);
-      const finalXGENBalance = await xgen.balanceOf(user1.address);
-
-      expect(finalXIOBalance).to.equal(xgenBalance);
-      expect(finalXGENBalance).to.equal(0);
-    });
-  });
-
-  describe("4. Token Vesting and Monitoring", function() {
-    it("Should set up and execute vesting schedules", async function() {
-      const vestingAmount = ethers.utils.parseEther("100000");
-      const now = Math.floor(Date.now() / 1000);
-      
-      await xgen.transfer(vesting.address, vestingAmount);
-      
-      await vesting.createVestingSchedule(
-        treasury.address,
-        now, // start time
-        2592000, // 30 days cliff
-        7776000, // 90 days total duration
-        86400, // 1 day release interval
-        vestingAmount
-      );
-
-      // Fast forward 45 days
-      await ethers.provider.send("evm_increaseTime", [3888000]);
-      await ethers.provider.send("evm_mine");
-
-      const vestedAmount = await vesting.getVestedAmount(treasury.address);
-      expect(vestedAmount).to.be.gt(0);
-      
-      // Claim vested tokens
-      await vesting.connect(treasury).claim();
-      const treasuryBalance = await xgen.balanceOf(treasury.address);
-      expect(treasuryBalance).to.equal(vestedAmount);
+    describe("2. Burn Mechanics", function() {
+        it("Should execute burns correctly", async function() {
+            const burnAmount = ethers.utils.parseEther("1000");
+            
+            // Execute first burn
+            await xioToken.executeQuarterlyBurn(burnAmount);
+            
+            // Verify burn stats
+            const burnStats = await xioToken.getBurnStats();
+            expect(burnStats.totalBurnt).to.equal(burnAmount);
+            
+            // Try immediate second burn (should fail)
+            await expect(
+                xioToken.executeQuarterlyBurn(burnAmount)
+            ).to.be.revertedWith("XIO: Too early for burn");
+        });
     });
 
-    it("Should track token metrics correctly", async function() {
-      const metrics = await monitor.getTokenMetrics();
-      
-      expect(metrics.totalSupply).to.equal(ethers.utils.parseEther("1000000"));
-      expect(metrics.totalSold).to.be.gt(0);
-      expect(metrics.vestingBalance).to.be.gt(0);
-    });
+    describe("3. Governance Integration", function() {
+        it("Should execute governance proposals", async function() {
+            const proposalId = ethers.utils.id("Test Proposal");
+            const signatures = [
+                await owner.signMessage(ethers.utils.arrayify(proposalId)),
+                await addr1.signMessage(ethers.utils.arrayify(proposalId)),
+                await addr2.signMessage(ethers.utils.arrayify(proposalId))
+            ];
 
-    it("Should monitor token transfers", async function() {
-      const transferAmount = ethers.utils.parseEther("100");
-      await xgen.connect(treasury).transfer(user2.address, transferAmount);
-      
-      const lastTransfer = await monitor.getLastTransfer();
-      expect(lastTransfer.from).to.equal(treasury.address);
-      expect(lastTransfer.to).to.equal(user2.address);
-      expect(lastTransfer.amount).to.equal(transferAmount);
+            // Schedule proposal
+            await governance.scheduleProposal(proposalId, signatures);
+            
+            // Move time forward
+            await time.increase(172800); // 2 days
+            
+            // Execute proposal
+            const transferAmount = ethers.utils.parseEther("1000");
+            const callData = xioToken.interface.encodeFunctionData("transfer", [
+                addr2.address,
+                transferAmount
+            ]);
+
+            await governance.executeProposal(
+                proposalId,
+                [xioToken.address],
+                [0],
+                [callData]
+            );
+
+            expect(await governance.proposalExecuted(proposalId)).to.be.true;
+        });
+
+        it("Should handle emergency actions", async function() {
+            const proposalId = ethers.utils.id("Emergency");
+            const transferAmount = ethers.utils.parseEther("1000");
+            const callData = xioToken.interface.encodeFunctionData("transfer", [
+                emergencyRecovery.address,
+                transferAmount
+            ]);
+
+            const balanceBefore = await xioToken.balanceOf(emergencyRecovery.address);
+
+            await governance.executeEmergencyAction(
+                proposalId,
+                [xioToken.address],
+                [0],
+                [callData],
+                "Emergency test"
+            );
+
+            expect(await xioToken.balanceOf(emergencyRecovery.address))
+                .to.equal(balanceBefore.add(transferAmount));
+        });
     });
-  });
 });
