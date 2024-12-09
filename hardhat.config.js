@@ -41,12 +41,13 @@ if (process.env.HYPERLIQUID_RPC_URL && process.env.HYPERLIQUID_CHAIN_ID) {
 /** @type import('hardhat/config').HardhatUserConfig */
 module.exports = {
   solidity: {
-    version: "0.8.19",
+    version: "0.8.26",
     settings: {
       optimizer: {
         enabled: true,
         runs: 200
-      }
+      },
+      viaIR: true  // Enable IR-based compilation
     }
   },
   networks,
