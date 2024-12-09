@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.19;
+pragma solidity ^0.8.26;
 
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";
@@ -14,6 +14,20 @@ import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
  * @dev Implements ERC20 with role-based access control, pause functionality, and burnable features
  */
 contract XGEN is ERC20, ERC20Burnable, Pausable, AccessControl, ERC20Permit, ReentrancyGuard {
+    // Custom errors for gas optimization
+    error NotWhitelisted(address account);
+    error InvalidAddress();
+    error ExceedsMaxSupply();
+    error RateLimitExceeded(address from, address to, uint256 amount);
+    error InvalidAmount();
+    error InvalidPrice();
+    error InvalidPeriod();
+    error InvalidPercentage();
+    error InvalidInvestmentLimits();
+    error EmptyArrays();
+    error LengthMismatch();
+    error InvalidCliffPeriod();
+    
     bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
     bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
     bytes32 public constant CONFIGURATOR_ROLE = keccak256("CONFIGURATOR_ROLE");
@@ -43,17 +57,22 @@ contract XGEN is ERC20, ERC20Burnable, Pausable, AccessControl, ERC20Permit, Ree
     
     // Events
     event WhitelistUpdated(address indexed account, bool status);
-    event RateLimitExceeded(address indexed from, address indexed to, uint256 amount);
     event TokenPriceUpdated(uint256 oldPrice, uint256 newPrice);
     event InvestmentLimitsUpdated(uint256 minAmount, uint256 maxAmount);
     event VestingParametersUpdated(uint256 initialUnlock, uint256 cliff, uint256 duration);
     event RateLimitUpdated(uint256 amount, uint256 period);
     
+    // Modifiers
+    modifier isWhitelisted(address account) {
+        if (!whitelist[account]) revert NotWhitelisted(account);
+        _;
+    }
+    
     /**
      * @dev Contract constructor
      * @param name Token name
      * @param symbol Token symbol
-     * @param _totalSupply Total token supply cap
+     * @param _totalSupply Total token supply cap (1B tokens)
      * @param _seedAllocation Allocation for seed round
      * @param _tokenPrice Initial token price
      * @param _rateLimitAmount Initial rate limit amount
@@ -71,11 +90,11 @@ contract XGEN is ERC20, ERC20Burnable, Pausable, AccessControl, ERC20Permit, Ree
         ERC20(name, symbol)
         ERC20Permit(name) 
     {
-        require(_totalSupply > 0, "XGEN: Total supply must be positive");
-        require(_seedAllocation <= _totalSupply, "XGEN: Seed allocation exceeds total supply");
-        require(_tokenPrice > 0, "XGEN: Token price must be positive");
-        require(_rateLimitAmount > 0, "XGEN: Rate limit amount must be positive");
-        require(_rateLimitPeriod > 0, "XGEN: Rate limit period must be positive");
+        if (_totalSupply == 0) revert InvalidAmount();
+        if (_seedAllocation > _totalSupply) revert InvalidAmount();
+        if (_tokenPrice == 0) revert InvalidPrice();
+        if (_rateLimitAmount == 0) revert InvalidAmount();
+        if (_rateLimitPeriod == 0) revert InvalidPeriod();
 
         totalSupplyCap = _totalSupply;
         seedRoundAllocation = _seedAllocation;
@@ -101,7 +120,7 @@ contract XGEN is ERC20, ERC20Burnable, Pausable, AccessControl, ERC20Permit, Ree
         external 
         onlyRole(CONFIGURATOR_ROLE) 
     {
-        require(account != address(0), "XGEN: Cannot whitelist zero address");
+        if (account == address(0)) revert InvalidAddress();
         whitelist[account] = status;
         emit WhitelistUpdated(account, status);
     }
@@ -115,11 +134,11 @@ contract XGEN is ERC20, ERC20Burnable, Pausable, AccessControl, ERC20Permit, Ree
         external
         onlyRole(CONFIGURATOR_ROLE)
     {
-        require(accounts.length == statuses.length, "XGEN: Length mismatch");
-        require(accounts.length > 0, "XGEN: Empty arrays");
+        if (accounts.length != statuses.length) revert LengthMismatch();
+        if (accounts.length == 0) revert EmptyArrays();
         
         for (uint256 i = 0; i < accounts.length; i++) {
-            require(accounts[i] != address(0), "XGEN: Cannot whitelist zero address");
+            if (accounts[i] == address(0)) revert InvalidAddress();
             whitelist[accounts[i]] = statuses[i];
             emit WhitelistUpdated(accounts[i], statuses[i]);
         }
@@ -133,7 +152,7 @@ contract XGEN is ERC20, ERC20Burnable, Pausable, AccessControl, ERC20Permit, Ree
         external
         onlyRole(CONFIGURATOR_ROLE)
     {
-        require(newPrice > 0, "XGEN: Invalid price");
+        if (newPrice == 0) revert InvalidPrice();
         emit TokenPriceUpdated(tokenPrice, newPrice);
         tokenPrice = newPrice;
     }
@@ -147,8 +166,9 @@ contract XGEN is ERC20, ERC20Burnable, Pausable, AccessControl, ERC20Permit, Ree
         external
         onlyRole(CONFIGURATOR_ROLE)
     {
-        require(_minInvestment > 0, "XGEN: Invalid min investment");
-        require(_maxInvestment >= _minInvestment, "XGEN: Invalid max investment");
+        if (_minInvestment == 0) revert InvalidAmount();
+        if (_maxInvestment < _minInvestment) revert InvalidInvestmentLimits();
+        
         minInvestment = _minInvestment;
         maxInvestment = _maxInvestment;
         emit InvestmentLimitsUpdated(_minInvestment, _maxInvestment);
@@ -168,8 +188,8 @@ contract XGEN is ERC20, ERC20Burnable, Pausable, AccessControl, ERC20Permit, Ree
         external
         onlyRole(CONFIGURATOR_ROLE)
     {
-        require(_initialUnlock <= 100, "XGEN: Invalid unlock percentage");
-        require(_cliff < _duration, "XGEN: Invalid cliff period");
+        if (_initialUnlock > 100) revert InvalidPercentage();
+        if (_cliff >= _duration) revert InvalidCliffPeriod();
         
         initialUnlockPercent = _initialUnlock;
         cliffPeriod = _cliff;
@@ -187,8 +207,8 @@ contract XGEN is ERC20, ERC20Burnable, Pausable, AccessControl, ERC20Permit, Ree
         external
         onlyRole(CONFIGURATOR_ROLE)
     {
-        require(_amount > 0, "XGEN: Invalid rate limit amount");
-        require(_period > 0, "XGEN: Invalid rate limit period");
+        if (_amount == 0) revert InvalidAmount();
+        if (_period == 0) revert InvalidPeriod();
         
         rateLimitAmount = _amount;
         rateLimitPeriod = _period;
@@ -219,11 +239,12 @@ contract XGEN is ERC20, ERC20Burnable, Pausable, AccessControl, ERC20Permit, Ree
         external 
         onlyRole(MINTER_ROLE)
         nonReentrant 
+        isWhitelisted(to)
     {
-        require(to != address(0), "XGEN: Cannot mint to zero address");
-        require(amount > 0, "XGEN: Amount must be positive");
-        require(totalSupply() + amount <= totalSupplyCap, "XGEN: Exceeds max supply");
-        require(whitelist[to], "XGEN: Address not whitelisted");
+        if (to == address(0)) revert InvalidAddress();
+        if (amount == 0) revert InvalidAmount();
+        if (totalSupply() + amount > totalSupplyCap) revert ExceedsMaxSupply();
+        
         _mint(to, amount);
     }
 
@@ -235,9 +256,8 @@ contract XGEN is ERC20, ERC20Burnable, Pausable, AccessControl, ERC20Permit, Ree
         address to,
         uint256 amount
     ) internal virtual override {
-        require(from != address(0), "XGEN: Transfer from zero address");
-        require(to != address(0), "XGEN: Transfer to zero address");
-        require(amount > 0, "XGEN: Transfer amount must be positive");
+        if (from == address(0) || to == address(0)) revert InvalidAddress();
+        if (amount == 0) revert InvalidAmount();
         
         // Reset rate limit if period has passed
         if (block.timestamp >= lastTransferTimestamp[from] + rateLimitPeriod) {
@@ -247,8 +267,7 @@ contract XGEN is ERC20, ERC20Burnable, Pausable, AccessControl, ERC20Permit, Ree
         
         // Check rate limit
         if (transferredInPeriod[from] + amount > rateLimitAmount) {
-            emit RateLimitExceeded(from, to, amount);
-            revert("XGEN: Rate limit exceeded");
+            revert RateLimitExceeded(from, to, amount);
         }
         
         transferredInPeriod[from] += amount;
@@ -261,20 +280,11 @@ contract XGEN is ERC20, ERC20Burnable, Pausable, AccessControl, ERC20Permit, Ree
     function _beforeTokenTransfer(
         address from,
         address to,
-        uint256 amount
+        uint256
     ) internal override whenNotPaused {
-        super._beforeTokenTransfer(from, to, amount);
-        
         // Skip checks for minting
         if (from != address(0)) {
-            require(whitelist[from] && whitelist[to], "XGEN: Address not whitelisted");
+            if (!whitelist[from] || !whitelist[to]) revert NotWhitelisted(from);
         }
-    }
-
-    /**
-     * @dev Returns the number of decimals used to get its user representation
-     */
-    function decimals() public pure override returns (uint8) {
-        return 18;
     }
 }
