@@ -74,13 +74,15 @@ describe("XGEN", function () {
             await xgen.updateWhitelist(addr2.address, false);
             await expect(
                 xgen.connect(addr1).transfer(addr2.address, ethers.utils.parseEther("500"))
-            ).to.be.revertedWith("XGEN: Address not whitelisted");
+            ).to.be.revertedWithCustomError(xgen, "NotWhitelisted")
+            .withArgs(addr1.address);
         });
 
         it("Should enforce rate limits", async function () {
             await expect(
                 xgen.connect(addr1).transfer(addr2.address, RATE_LIMIT_AMOUNT.add(1))
-            ).to.be.revertedWith("XGEN: Rate limit exceeded");
+            ).to.be.revertedWithCustomError(xgen, "RateLimitExceeded")
+            .withArgs(addr1.address, addr2.address, RATE_LIMIT_AMOUNT.add(1));
         });
     });
 
