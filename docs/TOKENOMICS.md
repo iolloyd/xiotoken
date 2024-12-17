@@ -2,7 +2,7 @@
 
 ## Overview
 
-XIO implements a dual-token system with a placeholder token ($XGEN) for initial fundraising and the final token ($XIO) on Hyperliquid L1. This document outlines the economic model, distribution, and utility of these tokens.
+XIO implements a dual-token system with a placeholder token ($XGEN) for initial fundraising and the final token ($XIO) on Base. This document outlines the economic model, distribution, and utility of these tokens.
 
 ## Token Specifications
 
@@ -12,7 +12,7 @@ XIO implements a dual-token system with a placeholder token ($XGEN) for initial 
 - **Total Supply**: 1 Billion (fixed)
 - **Decimals**: 18
 - **Initial Price**: $0.002
-- **Network**: Hyperliquid L1 (XGEN on Base for sale)
+- **Network**: Base (XGEN on Base for sale)
 - **FDV**: $2M (at launch price)
 
 ## Token Distribution

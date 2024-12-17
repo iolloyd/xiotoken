@@ -2,8 +2,9 @@
 
 ## Prerequisites
 - Node.js and npm installed
-- Access to Base and Hyperliquid networks
-- Private key with sufficient funds
+- Access to Base network
+- Private key with sufficient ETH for deployment
+- Environment variables configured
 
 ## Setup
 
@@ -20,34 +21,20 @@ Edit `.env` with your credentials.
 
 ## Deployment Steps
 
-### 1. Deploy XGEN on Base
+### 1. Deploy XGEN Token
 ```bash
-npm run deploy:base
-```
-Save the deployed address in `.env` as `XGEN_ADDRESS`
-
-### 2. Configure Fjord Foundry
-- Access Fjord Foundry interface
-- Configure sale parameters with deployed XGEN address
-- Set duration, price, and allocation
-- Enable whitelisting if required
-
-### 3. Deploy XIO on Hyperliquid
-```bash
-npm run deploy:hyperliquid
-```
-Save the deployed address in `.env` as `XIO_ADDRESS`
-
-### 4. Deploy Swap Contract
-```bash
-node scripts/deploy-swap.js
+npm run deploy:xgen:base
 ```
 
-### 5. Verify Contracts
+### 2. Deploy XIO Token
 ```bash
-npx hardhat verify --network base $XGEN_ADDRESS
-npx hardhat verify --network hyperliquid $XIO_ADDRESS
-npx hardhat verify --network base $SWAP_ADDRESS "$XGEN_ADDRESS" "$XIO_ADDRESS" "$SWAP_START_TIME"
+npm run deploy:xio:base
+```
+
+### 3. Verify Contracts
+```bash
+# Verify on Base
+npx hardhat verify --network base $CONTRACT_ADDRESS
 ```
 
 ## Post-Deployment

@@ -1,23 +1,19 @@
 # XIO Token Implementation
 
-This repository contains the smart contracts and deployment scripts for the XIO token ecosystem, including the XGEN placeholder token, XIO token, and token swap mechanism.
+This repository contains the smart contracts and deployment scripts for the XIO token ecosystem, including the XGEN placeholder token and XIO token.
 
 ## Overview
 
-The system consists of three main components:
+The XIO Token project consists of two main components:
 
-1. **XGEN Token**: Initial placeholder token on Base network
-2. **XIO Token**: Final token deployed on Hyperliquid L1
-3. **TokenSwap**: Contract managing the 1:1 swap from XGEN to XIO
+1. **XGEN Token**: Initial token used for fundraising on Base
+2. **XIO Token**: Final token deployed on Base
 
 ## Prerequisites
 
 - Node.js v16+
-- npm v8+
-- Hardhat
 - Access to Base network (RPC URL)
-- Access to Hyperliquid L1 (RPC URL)
-- Private key with sufficient ETH for deployment
+- Etherscan API key for verification
 
 ## Installation
 
@@ -27,12 +23,7 @@ git clone https://github.com/your-org/xiotoken.git
 cd xiotoken
 ```
 
-2. Install dependencies:
-```bash
-npm install
-```
-
-3. Copy and configure environment variables:
+2. Copy and configure environment variables:
 ```bash
 cp .env.example .env
 ```
@@ -72,6 +63,34 @@ RATE_LIMIT_AMOUNT=100000
 RATE_LIMIT_PERIOD=3600
 ```
 
+## Deployment
+
+### 1. Configure Environment
+
+Copy `.env.example` to `.env` and fill in the required values:
+```bash
+cp .env.example .env
+```
+
+### 2. Install Dependencies
+
+```bash
+npm install
+```
+
+### 3. Deploy XIO Token
+
+```bash
+npm run deploy:xio:base
+```
+
+### 4. Verify Contract
+
+```bash
+# Verify on Base
+npm run verify:base CONTRACT_ADDRESS CONSTRUCTOR_ARGS
+```
+
 ## Testing
 
 Run the test suite:
@@ -84,35 +103,12 @@ For coverage report:
 npm run coverage
 ```
 
-## Deployment
-
-### 1. Deploy XGEN Token (Base Network)
-```bash
-npm run deploy:xgen:base
-```
-
-### 2. Run Token Sale
-Configure sale parameters in Fjord Foundry and start the sale.
-
-### 3. Deploy Token Swap
-```bash
-npm run deploy:swap:base
-```
-
-### 4. Deploy XIO Token (Hyperliquid L1)
-```bash
-npm run deploy:xio:hyperliquid
-```
-
 ## Contract Verification
 
 Verify contracts on respective block explorers:
 ```bash
 # Verify on Base
 npm run verify:base CONTRACT_ADDRESS CONSTRUCTOR_ARGS
-
-# Verify on Hyperliquid
-npm run verify:hyperliquid CONTRACT_ADDRESS CONSTRUCTOR_ARGS
 ```
 
 ## Security
