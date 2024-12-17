@@ -8,4 +8,6 @@ interface IXGENVesting {
     function vestedAmount(address beneficiary) external view returns (uint256);
     function claimVested() external;
     function addBeneficiary(address beneficiary, uint256 allocation) external;
+    function claimInitialUnlock() external;
+    function grantRole(bytes32 role, address account) external;
 }

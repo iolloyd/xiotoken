@@ -41,9 +41,8 @@ contract XGENMonitor is AccessControl {
     }
     
     // Tracking variables
-    mapping(address => bool) public isParticipant;
-    mapping(uint256 => uint256) public dailyTransfers;
     mapping(address => bool) public isHolder;
+    mapping(uint256 => uint256) public dailyTransfers;
     uint256 public currentDay;
     uint256 public totalHolders;
     

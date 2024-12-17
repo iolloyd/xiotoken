@@ -1,14 +1,14 @@
 const hre = require("hardhat");
-const { ethers } = require("hardhat");
+const { ethers, network } = require("hardhat");
 require('dotenv').config();
 
 async function main() {
-  console.log("Starting deployment...");
+  console.log("Starting deployment on network:", network.name);
 
   // Get deployment parameters from environment
-  const totalSupply = ethers.utils.parseEther(process.env.TOTAL_SUPPLY || "100000000");
-  const seedRoundAllocation = ethers.utils.parseEther(process.env.SEED_ROUND_ALLOCATION || "10000000");
-  const tokenPrice = process.env.TOKEN_PRICE || "100000000";
+  const totalSupply = ethers.utils.parseEther(process.env.TOTAL_SUPPLY || "1000000000");
+  const seedRoundAllocation = ethers.utils.parseEther(process.env.SEED_ROUND_ALLOCATION || "100000000");
+  const tokenPrice = process.env.TOKEN_PRICE || "1000000000000000";
   const rateLimitAmount = ethers.utils.parseEther(process.env.RATE_LIMIT_AMOUNT || "100000");
   const rateLimitPeriod = process.env.RATE_LIMIT_PERIOD || "3600";
 
@@ -22,6 +22,8 @@ async function main() {
   // Deploy XGEN token
   const XGEN = await ethers.getContractFactory("XGEN");
   const xgen = await XGEN.deploy(
+    "XGEN Token",
+    "XGEN",
     totalSupply,
     seedRoundAllocation,
     tokenPrice,
@@ -62,23 +64,38 @@ async function main() {
 
   // Verify contract if not on local network
   if (network.name !== "hardhat" && network.name !== "localhost") {
-    console.log("Waiting for block confirmations...");
-    await xgen.deployTransaction.wait(6); // Wait for 6 block confirmations
+    // Wait for fewer confirmations on testnet
+    const confirmations = network.name.includes("goerli") ? 3 : 6;
+    console.log(`Waiting for ${confirmations} block confirmations...`);
+    await xgen.deployTransaction.wait(confirmations);
 
-    console.log("Verifying contract on Etherscan...");
-    await hre.run("verify:verify", {
-      address: xgen.address,
-      constructorArguments: [
-        totalSupply,
-        seedRoundAllocation,
-        tokenPrice,
-        rateLimitAmount,
-        rateLimitPeriod
-      ],
-    });
+    console.log("Verifying contract on BaseScan...");
+    try {
+      await hre.run("verify:verify", {
+        address: xgen.address,
+        constructorArguments: [
+          "XGEN Token",
+          "XGEN",
+          totalSupply,
+          seedRoundAllocation,
+          tokenPrice,
+          rateLimitAmount,
+          rateLimitPeriod
+        ],
+      });
+      console.log("Contract verified successfully");
+    } catch (error) {
+      console.error("Verification error:", error.message);
+      console.log("You may need to verify manually or retry verification in a few minutes");
+    }
   }
 
-  console.log("Deployment completed successfully");
+  console.log("\nDeployment Summary:");
+  console.log("===================");
+  console.log("Network:", network.name);
+  console.log("XGEN Token:", xgen.address);
+  console.log("Block number:", await ethers.provider.getBlockNumber());
+  console.log("===================");
 }
 
 main()
