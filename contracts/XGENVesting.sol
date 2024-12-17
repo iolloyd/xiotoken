@@ -15,10 +15,9 @@ contract XGENVesting is AccessControl, ReentrancyGuard {
     XGEN public immutable xgenToken;
     
     uint64 public constant INITIAL_UNLOCK_PERCENT = 10;
-    uint64 public constant VESTING_DURATION = 540 days; // 18 months
-    uint64 public constant CLIFF_DURATION = 180 days;   // 6 months
-    
     uint64 public immutable startTimestamp;
+    uint64 public immutable cliffDuration;
+    uint64 public immutable vestingDuration;
     
     mapping(address => uint256) public beneficiaryAllocations;
     mapping(address => uint256) public initialUnlockClaimed;
@@ -28,10 +27,20 @@ contract XGENVesting is AccessControl, ReentrancyGuard {
     event InitialUnlockClaimed(address indexed beneficiary, uint256 amount);
     event TokensClaimed(address indexed beneficiary, uint256 amount);
     
-    constructor(address token) {
-        require(token != address(0), "XGENVesting: zero address");
-        xgenToken = XGEN(token);
+    constructor(
+        address _token,
+        uint256 _cliffDuration,
+        uint256 _vestingDuration
+    ) {
+        require(_token != address(0), "XGENVesting: zero address");
+        require(_cliffDuration > 0, "XGENVesting: zero cliff duration");
+        require(_vestingDuration > _cliffDuration, "XGENVesting: invalid vesting duration");
+        
+        xgenToken = XGEN(_token);
         startTimestamp = uint64(block.timestamp);
+        cliffDuration = uint64(_cliffDuration);
+        vestingDuration = uint64(_vestingDuration);
+        
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
         _grantRole(MANAGER_ROLE, msg.sender);
     }
@@ -87,11 +96,11 @@ contract XGENVesting is AccessControl, ReentrancyGuard {
         uint256 totalAllocation = beneficiaryAllocations[beneficiary];
         uint256 vestingAllocation = (totalAllocation * (100 - INITIAL_UNLOCK_PERCENT)) / 100;
         
-        if (block.timestamp < startTimestamp + CLIFF_DURATION) return 0;
-        if (block.timestamp >= startTimestamp + VESTING_DURATION) return vestingAllocation;
+        if (block.timestamp < startTimestamp + cliffDuration) return 0;
+        if (block.timestamp >= startTimestamp + vestingDuration) return vestingAllocation;
         
-        return (vestingAllocation * (block.timestamp - startTimestamp - CLIFF_DURATION)) / 
-               (VESTING_DURATION - CLIFF_DURATION);
+        return (vestingAllocation * (block.timestamp - startTimestamp - cliffDuration)) / 
+               (vestingDuration - cliffDuration);
     }
     
     /**
@@ -110,16 +119,5 @@ contract XGENVesting is AccessControl, ReentrancyGuard {
         totalClaimed[msg.sender] += claimable;
         require(xgenToken.transfer(msg.sender, claimable), "XGENVesting: transfer failed");
         emit TokensClaimed(msg.sender, claimable);
-    }
-    
-    /**
-     * @dev Returns total allocation for a beneficiary
-     */
-    function getAllocation(address beneficiary) 
-        external 
-        view 
-        returns (uint256) 
-    {
-        return beneficiaryAllocations[beneficiary];
     }
 }

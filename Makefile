@@ -1,5 +1,5 @@
 # Makefile for XIO Token project
-.PHONY: all install clean test compile lint deploy-base deploy-hyperliquid verify help snapshot
+.PHONY: all install clean test compile lint deploy-base verify help snapshot
 
 # Version
 VERSION := $(shell node -p "require('./package.json').version")
@@ -7,7 +7,7 @@ VERSION := $(shell node -p "require('./package.json').version")
 # Network-specific variables
 TIMESTAMP := $(shell date +%Y%m%d_%H%M%S)
 BACKUP_DIR := backups
-NETWORKS := goerli base_mainnet hyperliquid
+NETWORKS := goerli base_mainnet
 
 # Default target
 all: install compile test
@@ -26,9 +26,7 @@ help:
 	@echo "  make format          - Format contracts using prettier"
 	@echo ""
 	@echo "Deployment:"
-	@echo "  make deploy-goerli   - Deploy to Base Goerli testnet"
 	@echo "  make deploy-base     - Deploy to Base mainnet"
-	@echo "  make deploy-hl       - Deploy to Hyperliquid L1"
 	@echo "  make verify          - Verify contract deployments"
 	@echo ""
 	@echo "Tools:"
@@ -135,7 +133,7 @@ define deploy_template
 deploy-$(1):
 	@echo "Deploying to $(1)..."
 	@if [ ! -f .env ]; then echo "Error: .env file not found"; exit 1; fi
-	@if [ "$(1)" = "base_mainnet" ] || [ "$(1)" = "hyperliquid" ]; then \
+	@if [ "$(1)" = "base_mainnet" ]; then \
 		echo "Are you sure you want to deploy to $(1)? [y/N]" && read ans && [ $${ans:-N} = y ]; \
 	fi
 	npx hardhat run scripts/deploy-governance-system.js --network $(1)

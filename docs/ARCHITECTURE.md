@@ -2,7 +2,7 @@
 
 ## Overview
 
-The XIO Token system is a comprehensive token and governance platform built on Base and designed to integrate with Hyperliquid L1. The system consists of several key components working together to provide token functionality, governance capabilities, and security features.
+The XIO Token system is a comprehensive token and governance platform built on Base. The system consists of several key components working together to provide token functionality, governance capabilities, and security features.
 
 ## Core Components
 
@@ -73,18 +73,6 @@ DEFAULT_ADMIN_ROLE
    - Timelock on executions
    - Value restrictions
 
-## Network Architecture
-
-### Base Network Deployment
-- Main token functionality
-- Core governance operations
-- User interactions
-
-### Hyperliquid L1 Integration
-- Cross-chain operations
-- Liquidity provision
-- Trading functionality
-
 ## Contract Interactions
 
 ```mermaid
@@ -124,11 +112,6 @@ Key development aspects:
    - Block monitoring
    - Transaction tracking
    - Rate limit tracking
-
-3. External Systems
-   - Snapshot integration
-   - Hyperliquid bridge
-   - Monitoring services
 
 ## System Constraints
 

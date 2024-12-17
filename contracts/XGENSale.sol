@@ -13,14 +13,25 @@ import "./interfaces/IXGENVesting.sol";
  * @notice Manages the XGEN token sale through Fjord Foundry integration
  */
 contract XGENSale is IXGENSale, ReentrancyGuard, AccessControl, Pausable {
+    // Custom errors
+    error InvalidPriceMultiple(uint256 sent, uint256 price);
+    error BelowMinimumPurchase(uint256 amount, uint256 minimum);
+    error AboveMaximumPurchase(uint256 amount, uint256 maximum);
+    error ExceedsAllocation(uint256 requested, uint256 remaining);
+    error TransferFailed();
+    error InvalidAmount();
+    error NotStarted();
+    error AlreadyEnded();
+    error NotKYCApproved();
+    
     bytes32 public constant OPERATOR_ROLE = keccak256("OPERATOR_ROLE");
+    bytes32 public constant MANAGER_ROLE = keccak256("MANAGER_ROLE");
     
     IXGENToken public immutable xgenToken;
     IXGENVesting public immutable vestingContract;
     
-    uint256 public constant PRICE = 100_000_000;         // $0.10 in wei
-    uint256 public constant MIN_PURCHASE = 1_000 * 1e18; // $1,000
-    uint256 public constant MAX_PURCHASE = 50_000 * 1e18;// $50,000
+    uint256 public constant MIN_PURCHASE_TOKENS = 1000 * 10**18;  // 1000 tokens
+    uint256 public constant MAX_PURCHASE_TOKENS = 100000 * 10**18;  // 100k tokens
     uint256 public constant TOTAL_TOKENS = 10_000_000 * 1e18; // 10M tokens
     
     uint256 public startTime;
@@ -114,14 +125,31 @@ contract XGENSale is IXGENSale, ReentrancyGuard, AccessControl, Pausable {
         nonReentrant
         whenNotPaused
     {
-        require(block.timestamp >= startTime, "XGENSale: not started");
-        require(block.timestamp <= endTime, "XGENSale: ended");
-        require(kycApproved[msg.sender], "XGENSale: KYC required");
-        require(msg.value >= MIN_PURCHASE, "XGENSale: below minimum");
-        require(msg.value <= MAX_PURCHASE, "XGENSale: above maximum");
+        if (block.timestamp < startTime) revert NotStarted();
+        if (block.timestamp > endTime) revert AlreadyEnded();
+        if (!kycApproved[msg.sender]) revert NotKYCApproved();
+        if (msg.value == 0) revert InvalidAmount();
         
-        uint256 tokenAmount = (msg.value * 1e18) / tokenPrice;
-        require(totalSold + tokenAmount <= TOTAL_TOKENS, "XGENSale: exceeds allocation");
+        // First check if the amount would result in a whole number of tokens
+        // We do this by checking if msg.value * 1e18 is divisible by tokenPrice
+        uint256 scaledAmount = msg.value * 1e18;
+        if (scaledAmount % tokenPrice != 0) {
+            revert InvalidPriceMultiple(msg.value, tokenPrice);
+        }
+        
+        // Calculate number of tokens
+        uint256 tokenAmount = scaledAmount / tokenPrice;
+        
+        // Check purchase limits
+        if (tokenAmount < MIN_PURCHASE_TOKENS) {
+            revert BelowMinimumPurchase(tokenAmount, MIN_PURCHASE_TOKENS);
+        }
+        if (tokenAmount > MAX_PURCHASE_TOKENS) {
+            revert AboveMaximumPurchase(tokenAmount, MAX_PURCHASE_TOKENS);
+        }
+        if (totalSold + tokenAmount > TOTAL_TOKENS) {
+            revert ExceedsAllocation(tokenAmount, TOTAL_TOKENS - totalSold);
+        }
         
         // Update metrics
         totalSold += tokenAmount;
@@ -137,6 +165,11 @@ contract XGENSale is IXGENSale, ReentrancyGuard, AccessControl, Pausable {
         }
         if (smallestPurchase == 0 || tokenAmount < smallestPurchase) {
             smallestPurchase = tokenAmount;
+        }
+        
+        // Transfer tokens to vesting contract first
+        if (!xgenToken.transfer(address(vestingContract), tokenAmount)) {
+            revert TransferFailed();
         }
         
         // Set up vesting for the purchaser
@@ -181,5 +214,16 @@ contract XGENSale is IXGENSale, ReentrancyGuard, AccessControl, Pausable {
         
         (bool success, ) = to.call{value: balance}("");
         require(success, "XGENSale: withdrawal failed");
+    }
+    
+    /**
+     * @dev Approves vesting contract to transfer tokens
+     */
+    function approveVestingTransfer(uint256 amount)
+        external
+        onlyRole(DEFAULT_ADMIN_ROLE)
+    {
+        require(amount > 0, "XGENSale: invalid amount");
+        xgenToken.approve(address(vestingContract), amount);
     }
 }

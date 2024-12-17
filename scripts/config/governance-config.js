@@ -38,14 +38,13 @@ module.exports = {
             minGasPrice: "50000000000" // 50 gwei
         },
         base: {
-            xioTokenAddress: "", // To be filled after deployment
+            chainId: process.env.BASE_CHAIN_ID,
             snapshotSpace: "xio.base",
-            minGasPrice: "1000000000" // 1 gwei
-        },
-        hyperliquid: {
-            xioTokenAddress: "", // To be filled after L1 deployment
-            snapshotSpace: "xio.hyperliquid",
-            minGasPrice: "1000000000" // 1 gwei
+            minDelay: 172800, // 48 hours
+            proposalThreshold: "100000000000000000000000", // 100,000 tokens
+            votingDelay: 7200, // 2 hours
+            votingPeriod: 50400, // 14 hours
+            quorumNumerator: 4 // 4%
         }
     }
 };
