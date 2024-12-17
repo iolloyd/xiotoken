@@ -29,12 +29,13 @@ if (process.env.BASE_GOERLI_RPC_URL) {
   };
 }
 
-// Add Hyperliquid if configured
-if (process.env.HYPERLIQUID_RPC_URL && process.env.HYPERLIQUID_CHAIN_ID) {
-  networks.hyperliquid = {
-    url: process.env.HYPERLIQUID_RPC_URL,
-    accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
-    chainId: Number(process.env.HYPERLIQUID_CHAIN_ID)
+// Add Base if configured
+if (process.env.BASE_RPC_URL && process.env.BASE_CHAIN_ID) {
+  networks.base = {
+    url: process.env.BASE_RPC_URL,
+    accounts: [process.env.DEPLOYER_PRIVATE_KEY],
+    chainId: Number(process.env.BASE_CHAIN_ID),
+    gasPrice: process.env.GAS_PRICE_BASE ? Number(process.env.GAS_PRICE_BASE) : 'auto'
   };
 }
 

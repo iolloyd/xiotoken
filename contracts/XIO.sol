@@ -11,7 +11,8 @@ import "@openzeppelin/contracts/utils/Address.sol";
 
 /**
  * @title XIO Token
- * @notice Main token for the XIO ecosystem on Hyperliquid L1
+ * @author XIO Team
+ * @notice Main token for the XIO ecosystem on Base
  * @dev Implements a fixed supply token with burn mechanics, role-based access, and rate limiting
  */
 contract XIO is ERC20, ERC20Burnable, ERC20Permit, Pausable, AccessControl, ReentrancyGuard {
