@@ -1,171 +1,136 @@
-# XIO Token Implementation
+# XGEN Token
 
-This repository contains the smart contracts and deployment scripts for the XIO token ecosystem, including the XGEN placeholder token and XIO token.
+XGEN is a placeholder token for the XIO ecosystem, designed to be swapped 1:1 for the XIO utility token on Base network.
 
-## Overview
+## Security Features
 
-The XIO Token project consists of two main components:
+- Role-based access control with time-locked role changes
+- Identity-based rate limiting
+- Suspicious activity detection
+- Comprehensive event logging
+- Emergency pause functionality
+- Whitelist system
 
-1. **XGEN Token**: Initial token used for fundraising on Base
-2. **XIO Token**: Final token deployed on Base
+## Project Structure
+
+```
+├── contracts/
+│   ├── interfaces/         # Contract interfaces
+│   ├── XGEN.sol           # Main token contract
+│   ├── XGENSale.sol       # Token sale contract
+│   └── XGENVesting.sol    # Vesting schedule management
+├── scripts/
+│   └── deploy.js          # Deployment script
+├── test/                  # Test files
+├── .env                   # Environment configuration
+└── hardhat.config.js      # Hardhat configuration
+```
 
 ## Prerequisites
 
-- Node.js v16+
-- Access to Base network (RPC URL)
-- Etherscan API key for verification
+- Node.js >= 14.0.0
+- Yarn or npm
 
 ## Installation
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/your-org/xiotoken.git
+git clone <repository-url>
 cd xiotoken
 ```
 
-2. Copy and configure environment variables:
+2. Install dependencies:
+```bash
+yarn install
+```
+
+3. Copy the environment file and fill in your values:
 ```bash
 cp .env.example .env
 ```
 
-Edit `.env` with your specific configuration:
-```env
-# Network Configuration
-BASE_RPC_URL=your_base_rpc_url
-BASESCAN_API_KEY=your_basescan_api_key
-
-# Deployment Account
-PRIVATE_KEY=your_private_key
-DEPLOYER_ADDRESS=your_deployer_address
-
-# Contract Configuration
-TOTAL_SUPPLY=100000000
-SEED_ROUND_ALLOCATION=10000000
-TOKEN_PRICE=100000000
-MIN_INVESTMENT=1000
-MAX_INVESTMENT=50000
-
-# Security Configuration
-MULTISIG_ADDRESS=your_multisig_address
-ADMIN_ADDRESSES=address1,address2,address3
-PAUSER_ADDRESSES=address1,address2
-MINTER_ADDRESSES=address1,address2
-
-# Sale Configuration
-SALE_START_TIME=unix_timestamp
-SALE_DURATION=129600
-INITIAL_UNLOCK_PERCENT=10
-CLIFF_PERIOD=15552000
-VESTING_DURATION=46656000
-
-# Rate Limiting
-RATE_LIMIT_AMOUNT=100000
-RATE_LIMIT_PERIOD=3600
-```
-
-## Deployment
-
-### 1. Configure Environment
-
-Copy `.env.example` to `.env` and fill in the required values:
-```bash
-cp .env.example .env
-```
-
-### 2. Install Dependencies
-
-```bash
-npm install
-```
-
-### 3. Deploy XIO Token
-
-```bash
-npm run deploy:xio:base
-```
-
-### 4. Verify Contract
-
-```bash
-# Verify on Base
-npm run verify:base CONTRACT_ADDRESS CONSTRUCTOR_ARGS
-```
+Required environment variables:
+- `PRIVATE_KEY`: Your deployment wallet's private key
+- `BASESCAN_API_KEY`: API key from BaseScan
+- `BASE_MAINNET_RPC_URL`: Base mainnet RPC URL
+- `BASE_GOERLI_RPC_URL`: Base Goerli RPC URL
+- `ADMIN_ADDRESS`: Admin role address
+- `PAUSER_ADDRESS`: Pauser role address
+- `MINTER_ADDRESS`: Minter role address
+- `CONFIGURATOR_ADDRESS`: Configurator role address
 
 ## Testing
 
 Run the test suite:
 ```bash
-npm test
+yarn test
 ```
 
-For coverage report:
+Generate coverage report:
 ```bash
-npm run coverage
+yarn test:coverage
+```
+
+## Deployment
+
+### Base Goerli (Testnet)
+
+1. Ensure your `.env` file is configured with Base Goerli settings
+2. Deploy:
+```bash
+yarn deploy:base-goerli
+```
+
+### Base Mainnet
+
+1. Ensure your `.env` file is configured with Base mainnet settings
+2. Deploy:
+```bash
+yarn deploy:base
 ```
 
 ## Contract Verification
 
-Verify contracts on respective block explorers:
+Contracts will be automatically verified on BaseScan after deployment. If verification fails, you can retry manually:
 ```bash
-# Verify on Base
-npm run verify:base CONTRACT_ADDRESS CONSTRUCTOR_ARGS
+yarn verify:contracts
 ```
 
 ## Security
 
-The contracts implement several security features:
+The project has undergone a security audit, with findings and fixes documented in `AUDIT_REPORT.md`. Key security features include:
 
-1. **Role-Based Access Control**
-   - Admin roles
-   - Pauser roles
-   - Minter roles
-   - Operator roles
-   - Governance roles
+1. **Role Management**:
+   - Separate roles for different responsibilities
+   - Time-locked role changes
+   - Multi-step role transfer process
 
-2. **Rate Limiting**
-   - Configurable transfer limits
-   - Time-based restrictions
-   - Exemption list for trusted addresses
+2. **Rate Limiting**:
+   - Identity-based limits
+   - Transfer pattern detection
+   - Rolling time windows
 
-3. **Emergency Controls**
-   - Pause functionality
-   - Emergency recovery system
-   - Time-locked emergency actions
+3. **Access Control**:
+   - Whitelist system
+   - Pausable transfers
+   - Emergency controls
 
-4. **Burn Mechanism**
-   - Quarterly burn schedule
-   - Maximum burn cap
-   - Profit-based burn calculation
+## Available Scripts
 
-## Documentation
-
-Additional documentation:
-- [Implementation Plan](./docs/XIO%20Token%20Implementation%20Plan.md)
-- [Security Documentation](./docs/XIO%20Token%20Security%20Documentation.md)
-- [Technical Documentation](./docs/XIO%20Token%20Implementation%20Documentation.md)
-
-## Scripts
-
-Available npm scripts:
-```bash
-npm run compile      # Compile contracts
-npm run test        # Run tests
-npm run coverage    # Generate coverage report
-npm run deploy:base # Deploy to Base network
-npm run verify      # Verify contracts
-npm run clean       # Clean build files
-```
+- `yarn compile`: Compile contracts
+- `yarn test`: Run tests
+- `yarn test:coverage`: Generate coverage report
+- `yarn deploy:base`: Deploy to Base mainnet
+- `yarn deploy:base-goerli`: Deploy to Base Goerli
+- `yarn verify:contracts`: Verify contracts on BaseScan
+- `yarn lint`: Run Solidity linter
+- `yarn lint:fix`: Fix linting issues
+- `yarn format`: Format Solidity code
 
 ## Contributing
 
-1. Fork the repository
-2. Create your feature branch
-3. Commit your changes
-4. Push to the branch
-5. Create a pull request
-
-Please read [CONTRIBUTING.md](CONTRIBUTING.md) for details on the development process.
+Please read `CONTRIBUTING.md` for details on our code of conduct and the process for submitting pull requests.
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License - see the `LICENSE` file for details.

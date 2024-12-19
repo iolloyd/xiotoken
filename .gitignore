@@ -1,20 +1,36 @@
-node_modules
+node_modules/
 .env
-coverage
-coverage.json
-typechain
-typechain-types
 
 # Hardhat files
-cache
-artifacts
+cache/
+artifacts/
+typechain/
+typechain-types/
+
+# Test coverage
+coverage/
+coverage.json
 
 # IDE files
-.idea
-.vscode
+.vscode/
+.idea/
+*.swp
+*.swo
 
-# Local deployment data
-deployment.local.json
+# Deployment files
+deployment.*.json
 
-# Snapshot configuration
-snapshot-space-config.json
+# Logs
+logs/
+*.log
+
+# Build files
+dist/
+build/
+
+# Misc
+.DS_Store
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
