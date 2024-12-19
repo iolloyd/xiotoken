@@ -19,6 +19,7 @@ contract XGEN is ERC20, ERC20Burnable, Pausable, AccessControl, ERC20Permit, Ree
     error InvalidAddress();
     error ExceedsMaxSupply();
     error RateLimitExceeded(address from, address to, uint256 amount);
+    error GlobalRateLimitExceeded(bytes32 identityHash);
     error InvalidAmount();
     error InvalidPrice();
     error InvalidPeriod();
@@ -27,10 +28,19 @@ contract XGEN is ERC20, ERC20Burnable, Pausable, AccessControl, ERC20Permit, Ree
     error EmptyArrays();
     error LengthMismatch();
     error InvalidCliffPeriod();
+    error RoleChangeNotRequested();
+    error TimelockNotExpired();
+    error RoleAlreadyAssigned();
+    error InvalidIdentityHash();
     
     bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
     bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
     bytes32 public constant CONFIGURATOR_ROLE = keccak256("CONFIGURATOR_ROLE");
+    
+    uint256 public constant TIMELOCK_DELAY = 2 days;
+    uint256 public constant GLOBAL_RATE_LIMIT = 1000000e18; // 1M tokens
+    uint256 public constant SUSPICIOUS_TRANSFER_COUNT = 10;
+    uint256 public constant SUSPICIOUS_TRANSFER_WINDOW = 1 hours;
     
     // Token supply parameters
     uint256 public immutable totalSupplyCap;
@@ -46,11 +56,18 @@ contract XGEN is ERC20, ERC20Burnable, Pausable, AccessControl, ERC20Permit, Ree
     uint256 public cliffPeriod;
     uint256 public vestingDuration;
     
-    // Rate limiting
-    uint256 public rateLimitAmount;
-    uint256 public rateLimitPeriod;
-    mapping(address => uint256) public lastTransferTimestamp;
-    mapping(address => uint256) public transferredInPeriod;
+    // Rate limiting with identity tracking
+    struct RateLimit {
+        uint256 amount;
+        uint256 lastResetTime;
+        bytes32 identityHash;
+        uint256 transferCount;
+    }
+    
+    mapping(address => RateLimit) public rateLimits;
+    mapping(bytes32 => uint256) public identityTransfers;
+    mapping(bytes32 => uint256) public identityTransferCount;
+    mapping(bytes32 => uint256) public roleChangeRequests;
     
     // Whitelisting
     mapping(address => bool) public whitelist;
@@ -60,7 +77,11 @@ contract XGEN is ERC20, ERC20Burnable, Pausable, AccessControl, ERC20Permit, Ree
     event TokenPriceUpdated(uint256 oldPrice, uint256 newPrice);
     event InvestmentLimitsUpdated(uint256 minAmount, uint256 maxAmount);
     event VestingParametersUpdated(uint256 initialUnlock, uint256 cliff, uint256 duration);
-    event RateLimitUpdated(uint256 amount, uint256 period);
+    event RateLimitUpdated(address indexed account, uint256 amount, uint256 timestamp);
+    event SuspiciousActivityDetected(bytes32 indexed identityHash, uint256 transferCount);
+    event RoleChangeRequested(bytes32 role, address account, uint256 executeTime);
+    event RoleChangeExecuted(bytes32 role, address account);
+    event IdentityHashSet(address indexed account, bytes32 identityHash);
     
     // Modifiers
     modifier isWhitelisted(address account) {
@@ -72,11 +93,13 @@ contract XGEN is ERC20, ERC20Burnable, Pausable, AccessControl, ERC20Permit, Ree
      * @dev Contract constructor
      * @param name Token name
      * @param symbol Token symbol
-     * @param _totalSupply Total token supply cap (1B tokens)
+     * @param _totalSupply Total token supply cap
      * @param _seedAllocation Allocation for seed round
      * @param _tokenPrice Initial token price
-     * @param _rateLimitAmount Initial rate limit amount
-     * @param _rateLimitPeriod Initial rate limit period
+     * @param _admin Admin role address
+     * @param _pauser Pauser role address
+     * @param _minter Minter role address
+     * @param _configurator Configurator role address
      */
     constructor(
         string memory name,
@@ -84,8 +107,10 @@ contract XGEN is ERC20, ERC20Burnable, Pausable, AccessControl, ERC20Permit, Ree
         uint256 _totalSupply,
         uint256 _seedAllocation,
         uint256 _tokenPrice,
-        uint256 _rateLimitAmount,
-        uint256 _rateLimitPeriod
+        address _admin,
+        address _pauser,
+        address _minter,
+        address _configurator
     ) 
         ERC20(name, symbol)
         ERC20Permit(name) 
@@ -93,28 +118,58 @@ contract XGEN is ERC20, ERC20Burnable, Pausable, AccessControl, ERC20Permit, Ree
         if (_totalSupply == 0) revert InvalidAmount();
         if (_seedAllocation > _totalSupply) revert InvalidAmount();
         if (_tokenPrice == 0) revert InvalidPrice();
-        if (_rateLimitAmount == 0) revert InvalidAmount();
-        if (_rateLimitPeriod == 0) revert InvalidPeriod();
+        if (_admin == address(0)) revert InvalidAddress();
+        
+        require(_admin != _pauser && _admin != _minter && _admin != _configurator, 
+                "Roles must be separate");
 
         totalSupplyCap = _totalSupply;
         seedRoundAllocation = _seedAllocation;
         tokenPrice = _tokenPrice;
-        rateLimitAmount = _rateLimitAmount;
-        rateLimitPeriod = _rateLimitPeriod;
 
-        _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
-        _grantRole(PAUSER_ROLE, msg.sender);
-        _grantRole(MINTER_ROLE, msg.sender);
-        _grantRole(CONFIGURATOR_ROLE, msg.sender);
+        _setupRole(DEFAULT_ADMIN_ROLE, _admin);
+        _setupRole(PAUSER_ROLE, _pauser);
+        _setupRole(MINTER_ROLE, _minter);
+        _setupRole(CONFIGURATOR_ROLE, _configurator);
         
-        // Mint initial supply to deployer
-        _mint(msg.sender, _totalSupply);
+        emit RoleChangeExecuted(DEFAULT_ADMIN_ROLE, _admin);
+        emit RoleChangeExecuted(PAUSER_ROLE, _pauser);
+        emit RoleChangeExecuted(MINTER_ROLE, _minter);
+        emit RoleChangeExecuted(CONFIGURATOR_ROLE, _configurator);
+        
+        // Mint initial supply to admin
+        _mint(_admin, _totalSupply);
+    }
+    
+    /**
+     * @dev Requests a role change with timelock
+     */
+    function requestRoleChange(bytes32 role, address account) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (account == address(0)) revert InvalidAddress();
+        if (hasRole(role, account)) revert RoleAlreadyAssigned();
+        
+        bytes32 requestId = keccak256(abi.encodePacked(role, account));
+        roleChangeRequests[requestId] = block.timestamp + TIMELOCK_DELAY;
+        
+        emit RoleChangeRequested(role, account, roleChangeRequests[requestId]);
+    }
+    
+    /**
+     * @dev Executes a pending role change after timelock expires
+     */
+    function executeRoleChange(bytes32 role, address account) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        bytes32 requestId = keccak256(abi.encodePacked(role, account));
+        if (roleChangeRequests[requestId] == 0) revert RoleChangeNotRequested();
+        if (block.timestamp < roleChangeRequests[requestId]) revert TimelockNotExpired();
+        
+        _grantRole(role, account);
+        delete roleChangeRequests[requestId];
+        
+        emit RoleChangeExecuted(role, account);
     }
     
     /**
      * @dev Updates whitelist status for an account
-     * @param account Address to update
-     * @param status New whitelist status
      */
     function updateWhitelist(address account, bool status) 
         external 
@@ -127,8 +182,6 @@ contract XGEN is ERC20, ERC20Burnable, Pausable, AccessControl, ERC20Permit, Ree
     
     /**
      * @dev Batch update whitelist status
-     * @param accounts Addresses to update
-     * @param statuses New whitelist statuses
      */
     function batchUpdateWhitelist(address[] calldata accounts, bool[] calldata statuses)
         external
@@ -146,7 +199,6 @@ contract XGEN is ERC20, ERC20Burnable, Pausable, AccessControl, ERC20Permit, Ree
 
     /**
      * @dev Updates token price
-     * @param newPrice New token price
      */
     function updateTokenPrice(uint256 newPrice)
         external
@@ -159,8 +211,6 @@ contract XGEN is ERC20, ERC20Burnable, Pausable, AccessControl, ERC20Permit, Ree
 
     /**
      * @dev Updates investment limits
-     * @param _minInvestment New minimum investment
-     * @param _maxInvestment New maximum investment
      */
     function updateInvestmentLimits(uint256 _minInvestment, uint256 _maxInvestment)
         external
@@ -175,81 +225,19 @@ contract XGEN is ERC20, ERC20Burnable, Pausable, AccessControl, ERC20Permit, Ree
     }
 
     /**
-     * @dev Updates vesting parameters
-     * @param _initialUnlock Initial unlock percentage
-     * @param _cliff Cliff period
-     * @param _duration Total vesting duration
+     * @dev Sets identity hash for rate limiting
      */
-    function updateVestingParameters(
-        uint256 _initialUnlock,
-        uint256 _cliff,
-        uint256 _duration
-    )
-        external
-        onlyRole(CONFIGURATOR_ROLE)
-    {
-        if (_initialUnlock > 100) revert InvalidPercentage();
-        if (_cliff >= _duration) revert InvalidCliffPeriod();
-        
-        initialUnlockPercent = _initialUnlock;
-        cliffPeriod = _cliff;
-        vestingDuration = _duration;
-        
-        emit VestingParametersUpdated(_initialUnlock, _cliff, _duration);
-    }
-
-    /**
-     * @dev Updates rate limiting parameters
-     * @param _amount New rate limit amount
-     * @param _period New rate limit period
-     */
-    function updateRateLimit(uint256 _amount, uint256 _period)
-        external
-        onlyRole(CONFIGURATOR_ROLE)
-    {
-        if (_amount == 0) revert InvalidAmount();
-        if (_period == 0) revert InvalidPeriod();
-        
-        rateLimitAmount = _amount;
-        rateLimitPeriod = _period;
-        
-        emit RateLimitUpdated(_amount, _period);
-    }
-
-    /**
-     * @dev Pauses all token transfers
-     */
-    function pause() external onlyRole(PAUSER_ROLE) {
-        _pause();
-    }
-
-    /**
-     * @dev Unpauses all token transfers
-     */
-    function unpause() external onlyRole(PAUSER_ROLE) {
-        _unpause();
-    }
-
-    /**
-     * @dev Mints new tokens
-     * @param to Address to receive the tokens
-     * @param amount Amount of tokens to mint
-     */
-    function mint(address to, uint256 amount) 
+    function setIdentityHash(address account, bytes32 identityHash) 
         external 
-        onlyRole(MINTER_ROLE)
-        nonReentrant 
-        isWhitelisted(to)
+        onlyRole(CONFIGURATOR_ROLE) 
     {
-        if (to == address(0)) revert InvalidAddress();
-        if (amount == 0) revert InvalidAmount();
-        if (totalSupply() + amount > totalSupplyCap) revert ExceedsMaxSupply();
-        
-        _mint(to, amount);
+        if (identityHash == bytes32(0)) revert InvalidIdentityHash();
+        rateLimits[account].identityHash = identityHash;
+        emit IdentityHashSet(account, identityHash);
     }
 
     /**
-     * @dev Internal transfer with rate limiting
+     * @dev Internal transfer with enhanced rate limiting
      */
     function _transfer(
         address from,
@@ -259,20 +247,60 @@ contract XGEN is ERC20, ERC20Burnable, Pausable, AccessControl, ERC20Permit, Ree
         if (from == address(0) || to == address(0)) revert InvalidAddress();
         if (amount == 0) revert InvalidAmount();
         
-        // Reset rate limit if period has passed
-        if (block.timestamp >= lastTransferTimestamp[from] + rateLimitPeriod) {
-            transferredInPeriod[from] = 0;
-            lastTransferTimestamp[from] = block.timestamp;
+        // Update rate limits
+        _updateRateLimit(from);
+        _updateRateLimit(to);
+        
+        // Check identity-based limits
+        bytes32 fromIdentity = rateLimits[from].identityHash;
+        if (fromIdentity != bytes32(0)) {
+            if (identityTransfers[fromIdentity] + amount > GLOBAL_RATE_LIMIT) {
+                revert GlobalRateLimitExceeded(fromIdentity);
+            }
+            
+            // Update transfer patterns
+            identityTransferCount[fromIdentity]++;
+            if (_isTransferPatternSuspicious(fromIdentity)) {
+                emit SuspiciousActivityDetected(fromIdentity, identityTransferCount[fromIdentity]);
+            }
+            
+            identityTransfers[fromIdentity] += amount;
         }
         
-        // Check rate
-                if (transferredInPeriod[from] + amount > rateLimitAmount) {
-            revert RateLimitExceeded(from, to, amount);
+        // Update individual address limits
+        unchecked {
+            rateLimits[from].amount += amount;
+            rateLimits[from].transferCount++;
         }
         
-        transferredInPeriod[from] += amount;
         super._transfer(from, to, amount);
     }
+
+    /**
+     * @dev Updates rate limit state
+     */
+    function _updateRateLimit(address account) internal {
+        RateLimit storage limit = rateLimits[account];
+        
+        if (block.timestamp >= limit.lastResetTime + SUSPICIOUS_TRANSFER_WINDOW) {
+            uint256 periods = (block.timestamp - limit.lastResetTime) / SUSPICIOUS_TRANSFER_WINDOW;
+            uint256 reduction = (limit.amount * periods) / 1;
+            
+            limit.amount = reduction > limit.amount ? 0 : limit.amount - reduction;
+            limit.lastResetTime = block.timestamp;
+            limit.transferCount = 0;
+            
+            emit RateLimitUpdated(account, limit.amount, block.timestamp);
+        }
+    }
+    
+    /**
+     * @dev Checks for suspicious transfer patterns
+     */
+    function _isTransferPatternSuspicious(bytes32 identityHash) internal view returns (bool) {
+        return identityTransferCount[identityHash] > SUSPICIOUS_TRANSFER_COUNT;
+    }
+
     /**
      * @dev Adds pre-transfer checks
      */

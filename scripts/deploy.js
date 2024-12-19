@@ -9,15 +9,37 @@ async function main() {
   const totalSupply = ethers.utils.parseEther(process.env.TOTAL_SUPPLY || "1000000000");
   const seedRoundAllocation = ethers.utils.parseEther(process.env.SEED_ROUND_ALLOCATION || "100000000");
   const tokenPrice = process.env.TOKEN_PRICE || "1000000000000000";
-  const rateLimitAmount = ethers.utils.parseEther(process.env.RATE_LIMIT_AMOUNT || "100000");
-  const rateLimitPeriod = process.env.RATE_LIMIT_PERIOD || "3600";
 
-  console.log("Deploying XGEN token with parameters:");
+  // Get role addresses from environment
+  const adminAddress = process.env.ADMIN_ADDRESS;
+  const pauserAddress = process.env.PAUSER_ADDRESS;
+  const minterAddress = process.env.MINTER_ADDRESS;
+  const configuratorAddress = process.env.CONFIGURATOR_ADDRESS;
+
+  // Validate addresses
+  if (!adminAddress || !ethers.utils.isAddress(adminAddress)) {
+    throw new Error("Invalid admin address");
+  }
+  if (!pauserAddress || !ethers.utils.isAddress(pauserAddress)) {
+    throw new Error("Invalid pauser address");
+  }
+  if (!minterAddress || !ethers.utils.isAddress(minterAddress)) {
+    throw new Error("Invalid minter address");
+  }
+  if (!configuratorAddress || !ethers.utils.isAddress(configuratorAddress)) {
+    throw new Error("Invalid configurator address");
+  }
+
+  console.log("\nDeployment Parameters:");
+  console.log("=====================");
   console.log(`Total Supply: ${ethers.utils.formatEther(totalSupply)} XGEN`);
   console.log(`Seed Round Allocation: ${ethers.utils.formatEther(seedRoundAllocation)} XGEN`);
   console.log(`Token Price: ${tokenPrice} wei`);
-  console.log(`Rate Limit Amount: ${ethers.utils.formatEther(rateLimitAmount)} XGEN`);
-  console.log(`Rate Limit Period: ${rateLimitPeriod} seconds`);
+  console.log(`Admin Address: ${adminAddress}`);
+  console.log(`Pauser Address: ${pauserAddress}`);
+  console.log(`Minter Address: ${minterAddress}`);
+  console.log(`Configurator Address: ${configuratorAddress}`);
+  console.log("=====================\n");
 
   // Deploy XGEN token
   const XGEN = await ethers.getContractFactory("XGEN");
@@ -27,40 +49,14 @@ async function main() {
     totalSupply,
     seedRoundAllocation,
     tokenPrice,
-    rateLimitAmount,
-    rateLimitPeriod
+    adminAddress,
+    pauserAddress,
+    minterAddress,
+    configuratorAddress
   );
 
   await xgen.deployed();
   console.log("XGEN token deployed to:", xgen.address);
-
-  // Set up roles if specified in environment
-  const adminAddresses = (process.env.ADMIN_ADDRESSES || "").split(",").filter(a => a);
-  const pauserAddresses = (process.env.PAUSER_ADDRESSES || "").split(",").filter(a => a);
-  const minterAddresses = (process.env.MINTER_ADDRESSES || "").split(",").filter(a => a);
-
-  // Get role identifiers
-  const DEFAULT_ADMIN_ROLE = await xgen.DEFAULT_ADMIN_ROLE();
-  const PAUSER_ROLE = await xgen.PAUSER_ROLE();
-  const MINTER_ROLE = await xgen.MINTER_ROLE();
-
-  // Grant roles
-  for (const admin of adminAddresses) {
-    console.log(`Granting admin role to ${admin}`);
-    await xgen.grantRole(DEFAULT_ADMIN_ROLE, admin);
-  }
-
-  for (const pauser of pauserAddresses) {
-    console.log(`Granting pauser role to ${pauser}`);
-    await xgen.grantRole(PAUSER_ROLE, pauser);
-  }
-
-  for (const minter of minterAddresses) {
-    console.log(`Granting minter role to ${minter}`);
-    await xgen.grantRole(MINTER_ROLE, minter);
-  }
-
-  console.log("Initial setup complete");
 
   // Verify contract if not on local network
   if (network.name !== "hardhat" && network.name !== "localhost") {
@@ -79,8 +75,10 @@ async function main() {
           totalSupply,
           seedRoundAllocation,
           tokenPrice,
-          rateLimitAmount,
-          rateLimitPeriod
+          adminAddress,
+          pauserAddress,
+          minterAddress,
+          configuratorAddress
         ],
       });
       console.log("Contract verified successfully");
@@ -96,6 +94,15 @@ async function main() {
   console.log("XGEN Token:", xgen.address);
   console.log("Block number:", await ethers.provider.getBlockNumber());
   console.log("===================");
+
+  // Log role assignments
+  console.log("\nRole Assignments:");
+  console.log("================");
+  console.log("Admin:", await xgen.hasRole(await xgen.DEFAULT_ADMIN_ROLE(), adminAddress));
+  console.log("Pauser:", await xgen.hasRole(await xgen.PAUSER_ROLE(), pauserAddress));
+  console.log("Minter:", await xgen.hasRole(await xgen.MINTER_ROLE(), minterAddress));
+  console.log("Configurator:", await xgen.hasRole(await xgen.CONFIGURATOR_ROLE(), configuratorAddress));
+  console.log("================");
 }
 
 main()

@@ -18,11 +18,13 @@ contract XGENKYC is AccessControl, Pausable, ReentrancyGuard {
         uint256 expiryDate;
         string verificationLevel;
         address verifier;
+        bytes32 identityHash;    // Hash of KYC documents (e.g., passport number)
     }
     
     struct VerificationRequest {
         address applicant;
         string documentHash;
+        bytes32 identityHash;    // Hash of KYC documents
         uint256 timestamp;
         bool processed;
         bool approved;
@@ -30,6 +32,9 @@ contract XGENKYC is AccessControl, Pausable, ReentrancyGuard {
     
     // KYC status mapping
     mapping(address => KYCData) public kycStatus;
+    
+    // Identity hash to address mapping to prevent duplicate identities
+    mapping(bytes32 => address) public identityToAddress;
     
     // Verification request mapping
     mapping(bytes32 => VerificationRequest) public verificationRequests;
@@ -43,80 +48,95 @@ contract XGENKYC is AccessControl, Pausable, ReentrancyGuard {
     event KYCVerified(address indexed account, string level, uint256 expiryDate);
     event KYCRevoked(address indexed account, string reason);
     event RegionRestrictionUpdated(string region, bool restricted);
+    event DuplicateIdentityAttempt(bytes32 indexed identityHash, address newAddress, address existingAddress);
+    
+    error DuplicateIdentity(address existingAddress);
     
     constructor() {
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
         _grantRole(VERIFIER_ROLE, msg.sender);
     }
-    
+
     /**
-     * @dev Submits a KYC verification request
-     * @param documentHash Hash of the submitted KYC documents
+     * @dev Submit a KYC verification request
+     * @param documentHash Hash of KYC documents
+     * @param identityHash Unique hash of identity documents (e.g., passport number)
      */
-    function submitKYCRequest(string calldata documentHash) 
-        external
-        whenNotPaused
-        nonReentrant
-        returns (bytes32)
-    {
-        require(bytes(documentHash).length > 0, "XGENKYC: Empty document hash");
-        require(!kycStatus[msg.sender].verified, "XGENKYC: Already verified");
+    function submitKYCRequest(
+        string calldata documentHash,
+        bytes32 identityHash
+    ) external whenNotPaused nonReentrant {
+        require(identityHash != bytes32(0), "Invalid identity hash");
         
-        bytes32 requestId = keccak256(abi.encodePacked(
-            msg.sender,
-            documentHash,
-            block.timestamp
-        ));
+        // Check if this identity is already registered to another address
+        address existingAddress = identityToAddress[identityHash];
+        if (existingAddress != address(0) && existingAddress != msg.sender) {
+            emit DuplicateIdentityAttempt(identityHash, msg.sender, existingAddress);
+            revert DuplicateIdentity(existingAddress);
+        }
+
+        bytes32 requestId = keccak256(
+            abi.encodePacked(msg.sender, documentHash, block.timestamp)
+        );
         
         verificationRequests[requestId] = VerificationRequest({
             applicant: msg.sender,
             documentHash: documentHash,
+            identityHash: identityHash,
             timestamp: block.timestamp,
             processed: false,
             approved: false
         });
         
         userRequests[msg.sender].push(requestId);
-        
         emit KYCRequestSubmitted(requestId, msg.sender);
-        return requestId;
     }
-    
+
     /**
-     * @dev Approves a KYC verification request
-     * @param requestId ID of the verification request
-     * @param level Verification level assigned
-     * @param validityPeriod Period for which the verification is valid
+     * @dev Verify KYC for an account
+     * @param account Address to verify
+     * @param requestId Request ID to process
+     * @param level Verification level
+     * @param expiryDays Number of days until expiry
      */
-    function approveKYC(
+    function verifyKYC(
+        address account,
         bytes32 requestId,
         string calldata level,
-        uint256 validityPeriod
-    )
-        external
-        onlyRole(VERIFIER_ROLE)
-        nonReentrant
-    {
+        uint256 expiryDays
+    ) external whenNotPaused onlyRole(VERIFIER_ROLE) {
+        require(account != address(0), "Invalid address");
+        require(expiryDays > 0, "Invalid expiry");
+        
         VerificationRequest storage request = verificationRequests[requestId];
-        require(!request.processed, "XGENKYC: Already processed");
-        require(request.applicant != address(0), "XGENKYC: Invalid request");
+        require(!request.processed, "Request already processed");
+        require(request.applicant == account, "Account mismatch");
+        
+        // Check for duplicate identity
+        address existingAddress = identityToAddress[request.identityHash];
+        if (existingAddress != address(0) && existingAddress != account) {
+            emit DuplicateIdentityAttempt(request.identityHash, account, existingAddress);
+            revert DuplicateIdentity(existingAddress);
+        }
+        
+        // Mark this identity as registered to this address
+        identityToAddress[request.identityHash] = account;
         
         request.processed = true;
         request.approved = true;
         
-        uint256 expiryDate = block.timestamp + validityPeriod;
-        
-        kycStatus[request.applicant] = KYCData({
+        kycStatus[account] = KYCData({
             verified: true,
             verificationDate: block.timestamp,
-            expiryDate: expiryDate,
+            expiryDate: block.timestamp + (expiryDays * 1 days),
             verificationLevel: level,
-            verifier: msg.sender
+            verifier: msg.sender,
+            identityHash: request.identityHash
         });
         
-        emit KYCVerified(request.applicant, level, expiryDate);
+        emit KYCVerified(account, level, block.timestamp + (expiryDays * 1 days));
     }
-    
+
     /**
      * @dev Revokes KYC verification
      * @param account Address whose KYC needs to be revoked

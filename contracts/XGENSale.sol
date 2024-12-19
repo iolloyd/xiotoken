@@ -7,6 +7,7 @@ import "@openzeppelin/contracts/security/Pausable.sol";
 import "./interfaces/IXGENToken.sol";
 import "./interfaces/IXGENSale.sol";
 import "./interfaces/IXGENVesting.sol";
+import "./interfaces/IXGENKYC.sol";
 
 /**
  * @title XGENSale
@@ -14,7 +15,7 @@ import "./interfaces/IXGENVesting.sol";
  */
 contract XGENSale is IXGENSale, ReentrancyGuard, AccessControl, Pausable {
     // Custom errors
-    error InvalidPriceMultiple(uint256 sent, uint256 price);
+    error InvalidPriceMultiple(uint256 sent, uint256 required);
     error BelowMinimumPurchase(uint256 amount, uint256 minimum);
     error AboveMaximumPurchase(uint256 amount, uint256 maximum);
     error ExceedsAllocation(uint256 requested, uint256 remaining);
@@ -29,6 +30,7 @@ contract XGENSale is IXGENSale, ReentrancyGuard, AccessControl, Pausable {
     
     IXGENToken public immutable xgenToken;
     IXGENVesting public immutable vestingContract;
+    IXGENKYC public immutable kycContract;
     
     uint256 public constant MIN_PURCHASE_TOKENS = 1000 * 10**18;  // 1000 tokens
     uint256 public constant MAX_PURCHASE_TOKENS = 100000 * 10**18;  // 100k tokens
@@ -46,6 +48,9 @@ contract XGENSale is IXGENSale, ReentrancyGuard, AccessControl, Pausable {
     mapping(address => uint256) public purchases;
     mapping(address => bool) public hasParticipated;
     
+    // Track total purchases by KYC-verified identity
+    mapping(bytes32 => uint256) private _identityPurchases;
+    
     event TokensPurchased(address indexed buyer, uint256 amount, uint256 cost);
     event KYCStatusUpdated(address indexed account, bool status);
     event SaleTimingUpdated(uint256 newStart, uint256 newEnd);
@@ -54,18 +59,21 @@ contract XGENSale is IXGENSale, ReentrancyGuard, AccessControl, Pausable {
     constructor(
         address token,
         address vesting,
+        address kyc,
         uint256 _startTime,
         uint256 _endTime,
         uint256 _tokenPrice
     ) {
         require(token != address(0), "XGENSale: zero token address");
         require(vesting != address(0), "XGENSale: zero vesting address");
+        require(kyc != address(0), "XGENSale: zero kyc address");
         require(_startTime > block.timestamp, "XGENSale: invalid start");
         require(_endTime > _startTime, "XGENSale: invalid end");
         require(_tokenPrice > 0, "XGENSale: invalid price");
         
         xgenToken = IXGENToken(token);
         vestingContract = IXGENVesting(vesting);
+        kycContract = IXGENKYC(kyc);
         startTime = _startTime;
         endTime = _endTime;
         tokenPrice = _tokenPrice;
@@ -117,6 +125,29 @@ contract XGENSale is IXGENSale, ReentrancyGuard, AccessControl, Pausable {
     }
     
     /**
+     * @dev Calculate the exact ETH amount needed to purchase a specific number of tokens
+     * @param tokenAmount The number of tokens to purchase (in wei)
+     * @return The exact amount of ETH needed (in wei)
+     */
+    function calculateExactEthAmount(uint256 tokenAmount) public view returns (uint256) {
+        return (tokenAmount * tokenPrice) / 1e18;
+    }
+
+    /**
+     * @dev Calculate the number of tokens that can be purchased with a specific ETH amount
+     * @param ethAmount The amount of ETH to spend (in wei)
+     * @return tokenAmount The number of tokens that can be purchased
+     * @return remainingEth Any ETH that would be left over due to price multiple
+     */
+    function calculatePurchaseAmount(uint256 ethAmount) public view returns (uint256 tokenAmount, uint256 remainingEth) {
+        uint256 scaledAmount = ethAmount * 1e18;
+        tokenAmount = scaledAmount / tokenPrice;
+        uint256 exactEthNeeded = calculateExactEthAmount(tokenAmount);
+        remainingEth = ethAmount - exactEthNeeded;
+        return (tokenAmount, remainingEth);
+    }
+
+    /**
      * @dev Purchases tokens in the sale
      */
     function purchaseTokens()
@@ -124,23 +155,19 @@ contract XGENSale is IXGENSale, ReentrancyGuard, AccessControl, Pausable {
         payable
         nonReentrant
         whenNotPaused
+        returns (uint256)
     {
         if (block.timestamp < startTime) revert NotStarted();
         if (block.timestamp > endTime) revert AlreadyEnded();
         if (!kycApproved[msg.sender]) revert NotKYCApproved();
         if (msg.value == 0) revert InvalidAmount();
-        
-        // First check if the amount would result in a whole number of tokens
-        // We do this by checking if msg.value * 1e18 is divisible by tokenPrice
-        uint256 scaledAmount = msg.value * 1e18;
-        if (scaledAmount % tokenPrice != 0) {
-            revert InvalidPriceMultiple(msg.value, tokenPrice);
+
+        // Calculate exact token amount and check for valid price multiple
+        (uint256 tokenAmount, uint256 remainingEth) = calculatePurchaseAmount(msg.value);
+        if (remainingEth > 0) {
+            revert InvalidPriceMultiple(msg.value, msg.value - remainingEth);
         }
-        
-        // Calculate number of tokens
-        uint256 tokenAmount = scaledAmount / tokenPrice;
-        
-        // Check purchase limits
+
         if (tokenAmount < MIN_PURCHASE_TOKENS) {
             revert BelowMinimumPurchase(tokenAmount, MIN_PURCHASE_TOKENS);
         }
@@ -150,32 +177,42 @@ contract XGENSale is IXGENSale, ReentrancyGuard, AccessControl, Pausable {
         if (totalSold + tokenAmount > TOTAL_TOKENS) {
             revert ExceedsAllocation(tokenAmount, TOTAL_TOKENS - totalSold);
         }
-        
-        // Update metrics
-        totalSold += tokenAmount;
+
+        // Update purchase tracking
         purchases[msg.sender] += tokenAmount;
-        
+        totalSold += tokenAmount;
+
         if (!hasParticipated[msg.sender]) {
             hasParticipated[msg.sender] = true;
             totalParticipants++;
         }
-        
+
         if (tokenAmount > largestPurchase) {
             largestPurchase = tokenAmount;
         }
         if (smallestPurchase == 0 || tokenAmount < smallestPurchase) {
             smallestPurchase = tokenAmount;
         }
-        
-        // Transfer tokens to vesting contract first
+
+        // Transfer tokens to vesting contract
         if (!xgenToken.transfer(address(vestingContract), tokenAmount)) {
             revert TransferFailed();
         }
-        
-        // Set up vesting for the purchaser
-        vestingContract.addBeneficiary(msg.sender, tokenAmount);
-        
+
+        // Set up vesting for the buyer
+        vestingContract.setupVesting(msg.sender, tokenAmount);
+
         emit TokensPurchased(msg.sender, tokenAmount, msg.value);
+        return tokenAmount;
+    }
+    
+    /**
+     * @dev Get total purchases for a KYC identity
+     * @param identityHash The KYC identity hash
+     * @return Total amount of tokens purchased by this identity
+     */
+    function getIdentityPurchases(bytes32 identityHash) external view returns (uint256) {
+        return _identityPurchases[identityHash];
     }
     
     /**

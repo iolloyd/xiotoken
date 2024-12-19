@@ -8,6 +8,12 @@ module.exports = {
   networks: {
     hardhat: {
       chainId: 1337
+    },
+    base_sepolia: {
+      url: "https://sepolia.base.org",
+      chainId: 84531,
+      accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
+      gasPrice: 1000000000 // 1 gwei
     }
   },
   solidity: {
